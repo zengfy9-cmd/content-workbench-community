@@ -123,11 +123,17 @@ def _fix_pairs(line: str, delim: str) -> str:
 
 def normalize_emphasis(markdown: str) -> str:
     lines = markdown.split("\n")
-    fence = False
+    fence, size = '', 0
     for k, line in enumerate(lines):
-        if line.lstrip().startswith("```"):
-            fence = not fence
-        if fence or "`" in line:
+        marker = re.match(r'^\s{0,3}(`{3,}|~{3,})(.*)$', line)
+        if fence:
+            if marker and marker[1][0] == fence and len(marker[1]) >= size and not marker[2].strip():
+                fence = ''
+            continue
+        if marker:
+            fence, size = marker[1][0], len(marker[1])
+            continue
+        if "`" in line:
             continue
         line = re.sub(r'\*\*==([^\n]*?)==\*\*', r'==**\1**==', line)
         for delim in ("**", "=="):
@@ -140,8 +146,14 @@ def markdown_parser() -> MarkdownIt:
     """CommonMark + tables + ``==高亮==``; shared by the 公众号, X and Feishu renderers."""
     md = MarkdownIt("commonmark", {"html": False, "linkify": False, "typographer": False}).enable("table")
     md.core.ruler.before("text_join", "mark", _mark_rule)
-    def center(state,start,end,silent):
-        if state.src[state.bMarks[start]+state.tShift[start]:state.eMarks[start]].strip()!=':::center':
+    def legacy_editor_breaks(state):
+        for token in state.tokens:
+            if token.type == 'inline':
+                token.content = re.sub(r'(?:\\\n)*\n?\\$', lambda m: '' if '\n' in m[0] or token.content == '\\' else m[0], token.content)
+    md.core.ruler.before('inline', 'legacy_editor_breaks', legacy_editor_breaks)
+    def alignment(state,start,end,silent):
+        marker = state.src[state.bMarks[start]+state.tShift[start]:state.eMarks[start]].strip()
+        if marker not in (':::center', ':::left'):
             return False
         last=start+1
         while last<end and state.src[state.bMarks[last]+state.tShift[last]:state.eMarks[last]].strip()!=':::':
@@ -150,13 +162,27 @@ def markdown_parser() -> MarkdownIt:
             return False
         if silent:
             return True
-        inner=state.src[state.bMarks[start+1]:state.bMarks[last]]
-        token=state.push('html_block','',0)
-        token.content=re.sub(r'<(p|h[1-6])>',r'<\1 style="text-align:center">',state.md.render(inner))
-        token.map=[start,last+1]
+        first = len(state.tokens)
+        limit = state.lineMax
+        state.lineMax = last
+        try:
+            state.md.block.tokenize(state, start + 1, last)
+        finally:
+            state.lineMax = limit
+        for token in state.tokens[first:]:
+            if token.type in ('paragraph_open', 'heading_open'):
+                token.attrSet('style', f'text-align:{marker[3:]}')
+                token.attrSet('data-workbench-align', marker[3:])
         state.line=last+1
         return True
-    md.block.ruler.before('fence','center',center)
+    md.block.ruler.before('fence','alignment',alignment)
+    default_fence = md.renderer.rules['fence']
+    def fence(tokens, idx, options, env):
+        output = default_fence(tokens, idx, options, env)
+        if tokens[idx].info.strip() == 'prompt':
+            output = output.replace('<pre>', '<pre data-prompt="true">', 1)
+        return output
+    md.renderer.rules['fence'] = fence
     return md
 
 
@@ -176,6 +202,7 @@ _STYLES = {
     "li": "margin:0.2em 0;",
     "strong": "font-weight:bold;color:#222;",
     "code": "font-family:Menlo,monospace;font-size:13px;background:#f3f3f3;padding:0 3px;",
+    "pre": "white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;text-align:left;padding:12px;background:#f3f3f3;",
     "table": "border-collapse:collapse;width:100%;font-size:14px;margin:0 0 1.1em;",
     "th": "border:1px solid #ddd;padding:6px;background:#f5f5f5;",
     "td": "border:1px solid #ddd;padding:6px;",
@@ -194,11 +221,13 @@ def wechat_html(markdown: str, theme: str = "", *, title: str = "") -> str:
     def add_style(match: re.Match) -> str:
         tag, rest = match.group(1), match.group(2) or ""
         style = _STYLES.get(tag)
-        if not style or "style=" in rest:
+        if not style:
             return match.group(0)
+        if 'style="' in rest:
+            return f'<{tag}' + rest.replace('style="', f'style="{style}', 1) + '>'
         return f'<{tag}{rest} style="{style}">'
 
-    out = re.sub(r"<(p|h1|h2|h3|h4|blockquote|ul|ol|li|strong|em|code|table|th|td)(\s[^>]*)?>", add_style, rendered)
+    out = re.sub(r"<(p|h1|h2|h3|h4|blockquote|ul|ol|li|strong|em|code|pre|table|th|td)(\s[^>]*)?>", add_style, rendered)
     # 公众号 keeps span styles more reliably than <mark>
     out = out.replace("<mark>", f'<span style="{_STYLES["mark"]}">').replace("</mark>", "</span>")
     return out.replace("<hr />", f'<hr style="{_STYLES["hr"]}" />').replace("<img ", f'<img style="{_STYLES["img"]}" ')

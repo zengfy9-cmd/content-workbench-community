@@ -1,6 +1,12 @@
 /* 内容工作台 — design tokens and components.
    Light by default, dark follows the system. System fonts only. */
 
+.prompt-block { border:1px solid var(--border); border-radius:var(--r-sm); margin:16px 0; background:var(--surface-2); overflow:hidden; }
+.prompt-block-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border); font:13px var(--font); color:var(--muted); }
+.rich-body .prompt-content { margin:0; padding:12px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }
+.prompt-block code { font:inherit; background:none; padding:0; }
+.prompt-preview-copy { margin:12px 0 6px; }
+
 :root {
   --bg: #f6f6f3;
   --surface: #ffffff;

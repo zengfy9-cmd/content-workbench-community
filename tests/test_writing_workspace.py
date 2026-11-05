@@ -85,7 +85,7 @@ def test_hot_list_cache_top_five_and_story_ids_only_from_feed(monkeypatch):
 
 def test_centered_paragraph_keeps_surrounding_text_and_rejects_html():
     html=markdown_parser().render('前文\n\n:::center\n中间 **加粗**\n:::\n\n后文\n\n<script>bad()</script>')
-    assert '<p style="text-align:center">中间 <strong>加粗</strong></p>' in html
+    assert '<p style="text-align:center" data-workbench-align="center">中间 <strong>加粗</strong></p>' in html
     assert '<p>前文</p>' in html and '<p>后文</p>' in html
     assert '<script>' not in html
     from content_workbench.textutil import normalize_emphasis

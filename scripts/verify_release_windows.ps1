@@ -40,10 +40,10 @@ $python = Join-Path $packageRoot '.venv/Scripts/python.exe'
 if ($LASTEXITCODE -ne 0) { throw 'HTTP persistence and restart verification failed' }
 Push-Location $packageRoot
 try {
-    & $python -m pytest -q
-    if ($LASTEXITCODE -ne 0) { throw 'Released package regression tests failed' }
     & $python -m playwright install chromium
     if ($LASTEXITCODE -ne 0) { throw 'Test browser installation failed' }
+    & $python -m pytest -q
+    if ($LASTEXITCODE -ne 0) { throw 'Released package regression tests failed' }
     @'
 from playwright.sync_api import sync_playwright, expect
 with sync_playwright() as p:

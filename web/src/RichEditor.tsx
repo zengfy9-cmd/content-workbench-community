@@ -12,12 +12,36 @@ import { Extension } from '@tiptap/core'
 import * as Ic from './icons'
 import { ReviewIssues, issueKey } from './reviewIssues'
 import { isolateSelection } from './selectionFormat'
+import { PromptBlock, togglePromptBlock } from './promptBlock'
 
 /* The draft is stored as Markdown (## 标题, **加粗**, ==高亮==, ![](/api/images/N)).
    The editor shows it as formatted text with the pictures in place and writes
    Markdown back on every change. */
 
 const md = new MarkdownIt('commonmark', { html: false, linkify: false }).enable('table')
+md.core.ruler.before('inline', 'legacy_editor_breaks', state => {
+  for (const token of state.tokens) {
+    if (token.type === 'inline') token.content = token.content.replace(/(?:\\\n)*\n?\\$/, match => match.includes('\n') || token.content === '\\' ? '' : match)
+  }
+})
+md.block.ruler.before('fence', 'alignment', (state, start, end, silent) => {
+  const marker = state.src.slice(state.bMarks[start] + state.tShift[start], state.eMarks[start]).trim()
+  if (marker !== ':::center' && marker !== ':::left') return false
+  let last = start + 1
+  while (last < end && state.src.slice(state.bMarks[last] + state.tShift[last], state.eMarks[last]).trim() !== ':::') last++
+  if (last >= end) return false
+  if (silent) return true
+  const first = state.tokens.length
+  const limit = state.lineMax
+  state.lineMax = last
+  try { state.md.block.tokenize(state, start + 1, last) }
+  finally { state.lineMax = limit }
+  for (const token of state.tokens.slice(first)) {
+    if (token.type === 'paragraph_open' || token.type === 'heading_open') token.attrSet('style', `text-align:${marker.slice(3)}`)
+  }
+  state.line = last + 1
+  return true
+})
 // Match the server rule: highlight can wrap bold text without CommonMark's
 // punctuation-flanking restriction turning the delimiters into visible text.
 md.core.ruler.before('text_join','workbench_highlight',state=>{
@@ -39,9 +63,9 @@ md.core.ruler.before('text_join','workbench_highlight',state=>{
 
 export function markdownToHtml(markdown: string): string {
   // the title is its own field, so the body's top level is ##
-  const text=normalizeEmphasis(markdown).replace(/^# /gm, '## ')
-  return text.split(/(:::center\n[\s\S]*?\n:::)/g).map(part=>part.startsWith(':::center\n')
-    ? md.render(part.slice(10,-4)).replace(/<(p|h[1-6])>/g,'<$1 style="text-align:center">') : md.render(part)).join('')
+  const tokens = md.parse(normalizeEmphasis(markdown), {})
+  for (const token of tokens) if (token.tag === 'h1') token.tag = 'h2'
+  return md.renderer.render(tokens, md.options, {})
 }
 
 /* Same rule as textutil.normalize_emphasis on the server: CommonMark won't close
@@ -80,10 +104,15 @@ function fixPairs(line: string, delim: string): string {
 }
 
 export function normalizeEmphasis(markdown: string): string {
-  let fence = false
+  let fence = '', size = 0
   return markdown.split('\n').map(line => {
-    if (line.trimStart().startsWith('```')) fence = !fence
-    if (fence || line.includes('`')) return line
+    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/)
+    if (fence) {
+      if (marker && marker[1][0] === fence && marker[1].length >= size && !marker[2].trim()) fence = ''
+      return line
+    }
+    if (marker) { fence = marker[1][0]; size = marker[1].length; return line }
+    if (line.includes('`')) return line
     return fixPairs(fixPairs(line.replace(/\*\*==([^\n]*?)==\*\*/g,'==**$1**=='), '**'), '==')
   }).join('\n')
 }
@@ -115,7 +144,7 @@ function inline(nodes: JSONContent[] | undefined): string {
   let stack: Mark[] = []
   const closeTo = (n: number) => { while (stack.length > n) out += close(stack.pop()!) }
   for (const node of nodes || []) {
-    if (node.type === 'hardBreak') { closeTo(0); out += '\\\n'; continue }
+    if (node.type === 'hardBreak') { closeTo(0); out += '  \n'; continue }
     if (node.type !== 'text') continue
     const marks = ((node.marks || []) as Mark[]).filter(m => ORDER.includes(m.type))
       .sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type))
@@ -141,8 +170,8 @@ function lineStart(text: string): string {
 function block(node: JSONContent, indent = ''): string {
   const kids = node.content || []
   switch (node.type) {
-    case 'paragraph': { const text=indent + lineStart(inline(kids)).replace(/\n/g, '\n' + indent); return node.attrs?.textAlign==='center' ? ':::center\n'+text+'\n:::' : text }
-    case 'heading': { const text='#'.repeat(Number(node.attrs?.level || 2)) + ' ' + inline(kids); return node.attrs?.textAlign==='center' ? ':::center\n'+text+'\n:::' : text }
+    case 'paragraph': { const text=indent + lineStart(inline(kids)).replace(/\n/g, '\n' + indent); return node.attrs?.textAlign ? ':::'+node.attrs.textAlign+'\n'+text+'\n:::' : text }
+    case 'heading': { const text='#'.repeat(Number(node.attrs?.level || 2)) + ' ' + inline(kids); return node.attrs?.textAlign ? ':::'+node.attrs.textAlign+'\n'+text+'\n:::' : text }
     case 'blockquote': return kids.map(k => block(k)).join('\n\n').split('\n').map(l => (l ? '> ' + l : '>')).join('\n')
     case 'bulletList':
     case 'orderedList': {
@@ -156,7 +185,13 @@ function block(node: JSONContent, indent = ''): string {
     }
     case 'horizontalRule': return '---'
     case 'image': return `![${String(node.attrs?.alt || '')}](${String(node.attrs?.src || '')})`
-    case 'codeBlock': return '```' + String(node.attrs?.language || '') + '\n' + kids.map(k => k.text || '').join('') + '\n```'
+    case 'promptBlock':
+    case 'codeBlock': {
+      const text = kids.map(k => k.text || '').join('')
+      const longest = Math.max(0, ...(text.match(/`+/g) || []).map(s => s.length))
+      const fence = '`'.repeat(Math.max(3, longest + 1))
+      return fence + (node.type === 'promptBlock' ? 'prompt' : String(node.attrs?.language || '')) + '\n' + text + '\n' + fence
+    }
     default: return inline(kids)
   }
 }
@@ -194,7 +229,8 @@ export function RichEditor({ value, onChange, onFiles, placeholder, editorRef, a
 
   const editor = useEditor({
     extensions: [
-      Extension.create({name:'paragraphAlignment',addGlobalAttributes(){return [{types:['paragraph','heading'],attributes:{textAlign:{default:'left',parseHTML:el=>el.style.textAlign==='center'?'center':'left',renderHTML:attrs=>attrs.textAlign==='center'?{style:'text-align:center'}:{}}}}]}}),
+      Extension.create({name:'paragraphAlignment',addGlobalAttributes(){return [{types:['paragraph','heading'],attributes:{textAlign:{default:null,parseHTML:el=>['center','left'].includes(el.style.textAlign)?el.style.textAlign:null,renderHTML:attrs=>attrs.textAlign?{style:`text-align:${attrs.textAlign}`}:{}}}}]}}),
+      PromptBlock,
       StarterKit.configure({ heading: { levels: [2, 3, 4] }, underline: false, strike: false,
         link: { openOnClick: false, autolink: true } }),
       Highlight.configure({ multicolor: false }),
@@ -296,7 +332,8 @@ function Toolbar({ editor, onPick,selection }: { editor: TiptapEditor; onPick: (
     editor,
     selector: ({ editor: e }) => ({
       h2: e.isActive('heading', { level: 2 }), h3: e.isActive('heading', { level: 3 }), h4: e.isActive('heading', { level: 4 }),
-      bold: e.isActive('bold'), mark: e.isActive('highlight'), quote: e.isActive('blockquote'),
+      bold: e.isActive('bold'), mark: e.isActive('highlight'), quote: e.isActive('blockquote'), prompt: e.isActive('promptBlock'),
+      center: e.isActive({textAlign:'center'}), left: e.isActive({textAlign:'left'}),
       ul: e.isActive('bulletList'), ol: e.isActive('orderedList'),
       undo: e.can().undo(), redo: e.can().redo(),
       characters: Array.from(e.state.doc.textContent.replace(/\s/g, '')).length,
@@ -327,8 +364,9 @@ function Toolbar({ editor, onPick,selection }: { editor: TiptapEditor; onPick: (
       <span className="sep" />
       <B label="标记待修改" title="红色审核标记：选中文字后点击，再次点击取消；随稿件保存，不进入发布正文" run={()=>{c();issue()}}><span className="issue-label">待修改</span></B>
       <B label="引用" on={s.quote} run={() => c(true).toggleBlockquote().run()}>引用</B>
-      <B label="选中段落居中" run={()=>c(true).updateAttributes('paragraph',{textAlign:'center'}).updateAttributes('heading',{textAlign:'center'}).run()}>居中</B>
-      <B label="选中段落左对齐" run={()=>c(true).updateAttributes('paragraph',{textAlign:'left'}).updateAttributes('heading',{textAlign:'left'}).run()}>左对齐</B>
+      <B label="提示词块" title="选中文字设为提示词块，可一键复制；再次点击恢复正文" on={s.prompt} run={()=>{c(true);togglePromptBlock(editor)}}>提示词</B>
+      <B label="选中段落居中" on={s.center} run={()=>c(true).updateAttributes('paragraph',{textAlign:'center'}).updateAttributes('heading',{textAlign:'center'}).run()}>居中</B>
+      <B label="选中段落左对齐" on={s.left} run={()=>c(true).updateAttributes('paragraph',{textAlign:'left'}).updateAttributes('heading',{textAlign:'left'}).run()}>左对齐</B>
       <B label="无序列表" on={s.ul} run={() => c(true).toggleBulletList().run()}>• 列表</B>
       <B label="有序列表" on={s.ol} run={() => c(true).toggleOrderedList().run()}>1. 列表</B>
       <B label="分割线" run={() => c().setHorizontalRule().run()}>—</B>

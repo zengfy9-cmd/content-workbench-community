@@ -135,7 +135,7 @@ def _structure(article: ET.Element, title: str) -> None:
     if not has_sections:
         blocks = list(article)
         for index, node in enumerate(blocks[:-1]):
-            if node.tag != "p" or any(child.tag != "strong" for child in node):
+            if node.tag != "p" or node.get('data-workbench-align') or any(child.tag != "strong" for child in node):
                 continue
             text = "".join(node.itertext()).strip()
             if not 4 <= len(text) <= 32 or "\n" in text or not "".join(blocks[index + 1].itertext()).strip():
@@ -243,11 +243,17 @@ def render(rendered_markdown: str, theme_id: str, *, title: str = "") -> str:
     result = inliner.inline_fragment(_serialize(article), theme["css"])
     tree = _Fragment(result).root[0]
     for node in tree.iter():
+        alignment = node.attrib.pop('data-workbench-align', None)
         declarations = []
         for part in node.get("style", "").split(";"):
             key, sep, value = part.partition(":")
             if sep and (key.strip() in _SAFE_PROPS or (node.tag == "hr" and key.strip() == "height")):
                 declarations.append(f"{key.strip()}:{value.strip()}")
+        if alignment in ('center', 'left'):
+            declarations = [part for part in declarations if not part.startswith('text-align:')]
+            declarations.append(f'text-align:{alignment} !important')
+        if node.get('data-prompt') == 'true':
+            declarations.extend(('white-space:pre-wrap', 'overflow-wrap:anywhere', 'word-break:break-word', 'text-align:left'))
         if declarations:
             node.set("style", ";".join(declarations) + ";")
         else:

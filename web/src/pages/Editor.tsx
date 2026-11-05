@@ -18,6 +18,7 @@ import type { Benchmark, BenchmarkCard } from '../benchmarkTypes'
 import { locate, type Anchor } from '../commentAnchors'
 import { WechatLayoutControls, type WechatTheme } from './WechatLayout'
 import { copyWechatLayout } from '../wechatClipboard'
+import { ArticlePreview } from '../ArticlePreview'
 import { PaneResizer } from '../PaneResizer'
 import { usePaneContainer, usePaneSize } from '../usePaneSize'
 import type { Editor as TiptapEditor } from '@tiptap/react'
@@ -490,7 +491,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
                 <div className="phone-body">
                   {!wechatTheme && <h1>{title || '标题'}</h1>}
                   {author && <div className="by">{author}</div>}
-                  <div dangerouslySetInnerHTML={{ __html: preview?.html || '' }} />
+                  <ArticlePreview html={preview?.html || ''} />
                 </div>
               </div>
             )}
