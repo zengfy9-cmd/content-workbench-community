@@ -150,6 +150,10 @@ def markdown_parser() -> MarkdownIt:
         for token in state.tokens:
             if token.type == 'inline':
                 token.content = re.sub(r'(?:\\\n)*\n?\\$', lambda m: '' if '\n' in m[0] or token.content == '\\' else m[0], token.content)
+                # Old editor versions also emitted one hard-break marker at the
+                # paragraph end. Keep escaped literal slashes and raw drive/UNC paths.
+                if re.search(r'(?<!\\)(?:\\\\)*\\$', token.content) and not re.search(r'[A-Za-z]:\\|^\s*\\\\', token.content):
+                    token.content = token.content[:-1]
     md.core.ruler.before('inline', 'legacy_editor_breaks', legacy_editor_breaks)
     def alignment(state,start,end,silent):
         marker = state.src[state.bMarks[start]+state.tShift[start]:state.eMarks[start]].strip()

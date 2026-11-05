@@ -21,7 +21,10 @@ import { PromptBlock, togglePromptBlock } from './promptBlock'
 const md = new MarkdownIt('commonmark', { html: false, linkify: false }).enable('table')
 md.core.ruler.before('inline', 'legacy_editor_breaks', state => {
   for (const token of state.tokens) {
-    if (token.type === 'inline') token.content = token.content.replace(/(?:\\\n)*\n?\\$/, match => match.includes('\n') || token.content === '\\' ? '' : match)
+    if (token.type === 'inline') {
+      token.content = token.content.replace(/(?:\\\n)*\n?\\$/, match => match.includes('\n') || token.content === '\\' ? '' : match)
+      if (/(?<!\\)(?:\\\\)*\\$/.test(token.content) && !/[A-Za-z]:\\|^\s*\\\\/.test(token.content)) token.content = token.content.slice(0, -1)
+    }
   }
 })
 md.block.ruler.before('fence', 'alignment', (state, start, end, silent) => {

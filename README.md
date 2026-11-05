@@ -29,7 +29,7 @@
 
 ### 方式一：交给你常用的 Agent
 
-[下载 v1.0.2 ZIP](https://github.com/zengfy9-cmd/content-workbench-community/releases/download/v1.0.2/content-workbench-community-v1.0.2.zip)，解压到独立目录，再用支持本机文件读写与终端执行的 Agent 打开它。
+[下载 v1.0.3 ZIP](https://github.com/zengfy9-cmd/content-workbench-community/releases/download/v1.0.3/content-workbench-community-v1.0.3.zip)，解压到独立目录，再用支持本机文件读写与终端执行的 Agent 打开它。
 
 | 工具 | 从哪里开始 |
 |---|---|
@@ -114,4 +114,4 @@ npm.cmd run build
 
 本项目采用 [MIT License](LICENSE)。
 
-本次 v1.0.2 修复段末斜杠、手动对齐被主题覆盖，并新增可复制的提示词块。使用方式见 [排版与提示词](docs/EDITOR_LAYOUT.md)。新版本云端验收结果以 Actions 对应运行记录为准。
+本次 v1.0.3 修复段末斜杠、手动对齐被主题覆盖，并新增可复制的提示词块。使用方式见 [排版与提示词](docs/EDITOR_LAYOUT.md)。新版本云端验收结果以 Actions 对应运行记录为准。

@@ -36,3 +36,12 @@ def test_legacy_empty_hardbreaks_do_not_display_slashes_or_damage_paths():
     assert '正文。' in plain and '下一段。' in plain
     assert '\\' not in plain.split('下一段。')[0]
     assert plain.count('C:\\资料\\') == 2
+
+
+def test_legacy_single_terminal_break_and_real_terminal_backslashes():
+    output = wechat_html('句末旧标记。\\\n\n另一段。\n\nC:\\原始路径\\\n\n字面反斜杠\\\\\n\n`代码\\`\n')
+    plain = ''.join(_Fragment(output).root.itertext())
+    assert '句末旧标记。\\' not in plain
+    assert 'C:\\原始路径\\' in plain
+    assert '字面反斜杠\\' in plain
+    assert '代码\\' in plain

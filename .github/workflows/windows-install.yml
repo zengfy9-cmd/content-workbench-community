@@ -5,7 +5,7 @@ on:
     inputs:
       release_tag:
         description: Published release to download and install
-        default: v1.0.2
+        default: v1.0.3
         required: true
   release:
     types: [published]
@@ -18,7 +18,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     env:
-      RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name || 'v1.0.2' }}
+      RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name || 'v1.0.3' }}
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

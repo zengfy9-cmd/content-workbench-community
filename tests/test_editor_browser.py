@@ -111,7 +111,7 @@ def test_editor_save_reopen_theme_alignment_prompt_and_clipboard(editor_server):
 
 def test_continuous_and_trailing_shift_enter_have_no_visible_slash(editor_server):
     base, client = editor_server
-    response = client.post('/api/drafts', json={'platform': 'wechat', 'title': '换行临时稿', 'body': '起始文字'})
+    response = client.post('/api/drafts', json={'platform': 'wechat', 'title': '换行临时稿', 'body': '起始文字\\\n\n\\\n'})
     response.raise_for_status()
     did = response.json()['id']
     with sync_playwright() as p:
@@ -121,6 +121,7 @@ def test_continuous_and_trailing_shift_enter_have_no_visible_slash(editor_server
             page.goto(f'{base}/#/drafts/{did}')
             editor = page.locator('.rich-body')
             expect(editor).to_contain_text('起始文字')
+            assert '\\' not in editor.inner_text()
             editor.click(); page.keyboard.press('Control+End')
             page.keyboard.press('Shift+Enter'); page.keyboard.press('Shift+Enter')
             page.keyboard.insert_text('下一段文字。')

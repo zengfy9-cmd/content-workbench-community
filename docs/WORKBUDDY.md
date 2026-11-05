@@ -1,11 +1,11 @@
 # 使用 WorkBuddy 安装 catcat.内容创造工作台
 
-将下面全文复制到 WorkBuddy，并选择本项目目录。也可以先告诉它本仓库链接，让它下载 v1.0.2 ZIP 后读取本文。
+将下面全文复制到 WorkBuddy，并选择本项目目录。也可以先告诉它本仓库链接，让它下载 v1.0.3 ZIP 后读取本文。
 
 其他 Agent 请使用[通用安装指南](AGENT_INSTALL.md)。
 
 ```text
-请帮我安装 https://github.com/zengfy9-cmd/content-workbench-community 的 v1.0.2 版本。
+请帮我安装 https://github.com/zengfy9-cmd/content-workbench-community 的 v1.0.3 版本。
 
 1. 确认这是完整源码目录（含 LICENSE、pyproject.toml、uv.lock、web/package-lock.json 和 deploy/install-windows.ps1）。没有则下载对应版本 ZIP，解压到我选择的独立目录。不要从头仿造网站。
 2. 一次询问工作台名称、安装目录，以及是否使用默认独立私有数据目录。不要填写示例密钥，不读取其他项目或浏览器账号配置。已有目录不能覆盖；发现旧数据就停下来让我选择保留或换新目录。
