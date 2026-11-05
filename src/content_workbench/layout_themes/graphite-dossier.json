@@ -1,0 +1,7 @@
+{
+  "id": "graphite-dossier",
+  "name": "灰墨",
+  "accent": "#475569",
+  "css": ".note-to-mp {font-family: sans-serif;font-size:16px;line-height:1.9;color:#242b32;padding:12px;}\n    h1 {font-size:26px;line-height:1.4;margin:24px 0;color:#475569;}\n    h2 {font-size:21px;margin:28px 0 14px;border-bottom:2px solid #475569;padding-bottom:8px;}\n    h3 {font-size:18px;margin:22px 0 10px;color:#475569;}\n    p {margin:12px 0;} blockquote {margin:18px 0;padding:12px 16px;border-left:3px solid #475569;background:#f4f6f7;}\n    pre {padding:14px;background:#f1f3f5;font-size:13px;white-space:pre-wrap;word-break:break-all;}\n    a {color:#475569;text-decoration:underline;} th,td {border:1px solid #d9dee3;padding:8px;}\n    th {background:#f1f3f5;} hr {border:0;border-top:1px solid #d9dee3;margin:24px 0;}\n    ",
+  "description": "灰墨通用简洁排版"
+}

@@ -1,0 +1,3 @@
+import {useEffect,useState} from 'react'
+import {api} from './api'
+export function XiaoDConnection(){const [info,setInfo]=useState<{xiaod:boolean;audio:boolean;transcription:boolean;method:string}|null>(null);useEffect(()=>{api.get<typeof info>('/api/media-imports/status').then(setInfo).catch(()=>{})},[]);return <section className="settings-group"><h2>小D · 内容整理</h2><div className="card card-pad"><p>{info?.xiaod?'已找到本机小D项目':'小D本机项目待检查'} · {info?.audio?'音频处理组件可用':'音频组件待检查'}</p><p className="small muted">{info?.method}。模型名称会在实际整理结果中显示；平台稿使用工作台当前起草模型。这里的组件检查不代表已验证所有平台链接。</p><a href="#/imports">导入内容与查看处理记录 →</a></div></section>}

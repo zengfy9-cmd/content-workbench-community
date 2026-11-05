@@ -1,0 +1,2 @@
+# Stable LF encoding for the bundled community theme manifest.
+src/content_workbench/layout_themes/*.json text eol=lf
