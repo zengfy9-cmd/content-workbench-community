@@ -1,3 +1,23 @@
+# v1.0.3 独立 Windows 云端验收
+
+验收日期：2026-11-05。结果：**通过**。
+
+[GitHub Actions 实际运行记录](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41996804021)
+
+- 从公开下载地址获取 `content-workbench-community-v1.0.3.zip`，核对 SHA256：`55d44bf698aa0c5b55e1bc2d6b16cac5fda1f9d75cb8988702a6d1d319c68dfd`。
+- 在新建 GitHub Windows 虚拟机中按锁文件安装依赖、构建并启动；空数据库、模型关闭、自动外部同步关闭。
+- 真实 HTTP 正文保存、图片上传、停止进程并重启读回、临时记录清理全部通过。
+- 发布包完整回归：**331 项通过，4 项第三方警告**。
+- 新增真实 Chromium 操作：选择居中、创建提示词块、粘贴多行文本、复制完整提示词、保存重开、切换排版主题、复制富文本排版。连续 Shift+Enter、段末 Shift+Enter 和旧稿换行兼容均通过。
+- 五种主题与原排版的手动对齐、提示词原文、内部代码围栏、真实反斜杠和文件路径均有回归覆盖。
+- 操作按钮只显示在工作台；公众号导出内容不包含工作台复制按钮。
+
+本次仍未自动操作 WorkBuddy 客户端、验证真实外部账号、调用收费模型或发布文章。全部使用空白或临时数据，没有上传维护者的正文、图片、凭据或订阅。
+
+此前 v1.0.2 的云端验收也已通过：[运行记录](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41996062481)。当前建议使用包含完整旧稿兼容的 v1.0.3。
+
+---
+
 # v1.0.1 独立 Windows 云端验收
 
 验收日期：2026-11-05。结果：**通过**。

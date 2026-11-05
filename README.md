@@ -67,7 +67,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\install-windows.ps1
 
 安装完成后访问 **http://localhost:8765**。详细依赖、数据目录和端口说明见下方。
 
-> v1.0.1 的 Windows ZIP 安装流程已完成云端验收，包含保存、重启读回与页面加载。[运行记录](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41991087689) · [验收范围](docs/CLOUD_VALIDATION.md)。其他 Agent 入口共用安装脚本，未逐一进行客户端实机验收。
+> v1.0.3 的 Windows ZIP 安装流程已完成云端验收（331 项测试通过），包含保存、重启读回与页面加载。[运行记录](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41996804021) · [验收范围](docs/CLOUD_VALIDATION.md)。其他 Agent 入口共用安装脚本，未逐一进行客户端实机验收。
 
 ## 第一次使用
 
@@ -114,4 +114,4 @@ npm.cmd run build
 
 本项目采用 [MIT License](LICENSE)。
 
-本次 v1.0.3 修复段末斜杠、手动对齐被主题覆盖，并新增可复制的提示词块。使用方式见 [排版与提示词](docs/EDITOR_LAYOUT.md)。新版本云端验收结果以 Actions 对应运行记录为准。
+本次 v1.0.3 修复段末斜杠、手动对齐被主题覆盖，并新增可复制的提示词块。使用方式见 [排版与提示词](docs/EDITOR_LAYOUT.md)。本版本的独立 Windows 云端验收已通过，运行记录见上方。
