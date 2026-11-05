@@ -1,5 +1,7 @@
 # 内容工作台 · 社区空白版
 
+[![Windows release installation](https://github.com/zengfy9-cmd/content-workbench-community/actions/workflows/windows-install.yml/badge.svg?event=release)](https://github.com/zengfy9-cmd/content-workbench-community/actions/workflows/windows-install.yml)
+
 给自己的内容建立一个本机工作台：收集素材、研究对标、整理选题、写稿批注、管理配图，再按需连接平台。Windows 安装后打开浏览器使用，数据存放在自己电脑。
 
 基于 [Gary（曹淦）的 content-workbench](https://github.com/garycaogan/content-workbench)（上游适配起点 `c3792f7e3821b02cc689c83415f9213a4f6538ff`），包含 Windows 适配及后续工作流扩展。保留原 MIT 许可证。此仓库从当前适配代码导出独立快照，不携带个人安装的 Git 历史、数据或配置。
@@ -9,6 +11,8 @@
 ## 下载并交给 WorkBuddy
 
 [下载 v1.0.1 ZIP](https://github.com/zengfy9-cmd/content-workbench-community/releases/download/v1.0.1/content-workbench-community-v1.0.1.zip) · [完整安装口令](docs/WORKBUDDY.md)
+
+**v1.0.1 已通过独立 Windows 云端安装验收**：从公开 ZIP 下载开始，验证空库启动、正文与图片保存、重启读回、315 项回归，以及 Chromium 页面加载。[查看实际运行结果](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41991087689) · [验收范围](docs/CLOUD_VALIDATION.md)。
 
 解压 ZIP，在 WorkBuddy 中选择解压后的目录，粘贴：
 
