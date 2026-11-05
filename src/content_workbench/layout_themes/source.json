@@ -1,10 +1,10 @@
 {
   "source": "Community edition original minimal styles (MIT); third-party theme snapshots excluded",
   "files": {
-    "graphite-dossier.json": "fb27355793c2612e44613262292babb30a5d3302d6f11b628e90a9517c2cc906",
-    "green-white-clean.json": "b9af7c542eeb97627d585728de0ee34a342065dee01d330188595f77ea7f72cb",
-    "ink-blue-editorial.json": "811ef931ecb782a8693cda94caf3386e371ef1ba982fd83418b4cf1d201ec521",
-    "mist-purple-story.json": "566f10d351ac2762aad3cb209ec19f027c7039086fbc9b10408cf5f0d34d9372",
-    "sand-gold-journal.json": "51378d26e796c6c152ef65cc48770d083c0095e776660427b6df1ef7bd2df009"
+    "graphite-dossier.json": "d299297e1de0a7567eda3e323a60c449d8df18e679148ce4b47b8620b1b59ff0",
+    "green-white-clean.json": "491782d2e586de54d7802e887019282fcb03cb005041fe5892fce391d420f541",
+    "ink-blue-editorial.json": "7512a032fe7cc5403b9c534bf09d921ef8ddf2351c38c5afa8b6dbda15f6ab20",
+    "mist-purple-story.json": "8bd76c27049304a901d046c9d43e558193d4512e7f17ef5af9c154f468039953",
+    "sand-gold-journal.json": "c7e9780d17fff7b09f7eeb4f9fb1f019d2873e534b78e9d96a1cdcbe7c608da6"
   }
 }

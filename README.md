@@ -8,7 +8,7 @@
 
 ## 下载并交给 WorkBuddy
 
-[下载 v1.0.0 ZIP](https://github.com/zengfy9-cmd/content-workbench-community/archive/refs/tags/v1.0.0.zip) · [完整安装口令](docs/WORKBUDDY.md)
+[下载 v1.0.1 ZIP](https://github.com/zengfy9-cmd/content-workbench-community/releases/download/v1.0.1/content-workbench-community-v1.0.1.zip) · [完整安装口令](docs/WORKBUDDY.md)
 
 解压 ZIP，在 WorkBuddy 中选择解压后的目录，粘贴：
 
@@ -30,6 +30,8 @@
 ## Windows 手动安装
 
 需要 Windows 10/11、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和 [Node.js LTS](https://nodejs.org/)。uv 按锁文件安装 Python 3.13 与项目依赖。网络需可访问 Python、npm 下载源。
+
+视频配音预览、音视频处理和完整回归测试还需要 FFmpeg（同时提供 ffmpeg、ffprobe 命令）。Windows 可参考[构建提供方的安装说明](https://www.gyan.dev/ffmpeg/builds/)，使用 `winget install --id Gyan.FFmpeg.Essentials -e` 后重开终端；基础文字与图片管理不依赖它。生图、转写与视频渲染仍需各自额外配置，本次安装不会调用付费模型或渲染视频。
 
 在解压目录运行 PowerShell：
 
