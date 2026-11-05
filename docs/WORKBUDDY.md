@@ -1,6 +1,8 @@
-# 给 WorkBuddy 的逐步安装指令
+# 使用 WorkBuddy 安装 catcat.内容创造工作台
 
 将下面全文复制到 WorkBuddy，并选择本项目目录。也可以先告诉它本仓库链接，让它下载 v1.0.1 ZIP 后读取本文。
+
+其他 Agent 请使用[通用安装指南](AGENT_INSTALL.md)。
 
 ---
 

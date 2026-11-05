@@ -1,35 +1,80 @@
-# 内容工作台 · 社区空白版
+# catcat.内容创造工作台
+
+**从一条灵感，到一篇准备好发布的作品。**
+
+一个运行在自己电脑上的内容创作工作台。收集素材、研究对标、整理选题、写作批注、管理配图，让内容和创作过程集中在一个地方。
+
+[快速安装](#快速安装) · [Agent 安装指南](docs/AGENT_INSTALL.md) · [WorkBuddy 安装](docs/WORKBUDDY.md) · [版本下载](https://github.com/zengfy9-cmd/content-workbench-community/releases) · [问题反馈](https://github.com/zengfy9-cmd/content-workbench-community/issues)
 
 [![Windows release installation](https://github.com/zengfy9-cmd/content-workbench-community/actions/workflows/windows-install.yml/badge.svg?event=release)](https://github.com/zengfy9-cmd/content-workbench-community/actions/workflows/windows-install.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-给自己的内容建立一个本机工作台：收集素材、研究对标、整理选题、写稿批注、管理配图，再按需连接平台。Windows 安装后打开浏览器使用，数据存放在自己电脑。
+## 可以做什么
 
-基于 [Gary（曹淦）的 content-workbench](https://github.com/garycaogan/content-workbench)（上游适配起点 `c3792f7e3821b02cc689c83415f9213a4f6538ff`），包含 Windows 适配及后续工作流扩展。保留原 MIT 许可证。此仓库从当前适配代码导出独立快照，不携带个人安装的 Git 历史、数据或配置。
-
-公众号排版使用本版自带的五款通用配色，保留排版与预览功能；未分发未标明开源许可证的第三方主题原文件。
-
-## 下载并交给 WorkBuddy
-
-[下载 v1.0.1 ZIP](https://github.com/zengfy9-cmd/content-workbench-community/releases/download/v1.0.1/content-workbench-community-v1.0.1.zip) · [完整安装口令](docs/WORKBUDDY.md)
-
-**v1.0.1 已通过独立 Windows 云端安装验收**：从公开 ZIP 下载开始，验证空库启动、正文与图片保存、重启读回、315 项回归，以及 Chromium 页面加载。[查看实际运行结果](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41991087689) · [验收范围](docs/CLOUD_VALIDATION.md)。
-
-解压 ZIP，在 WorkBuddy 中选择解压后的目录，粘贴：
-
-> 请按当前目录的 AGENTS.md、README.md 和 docs/WORKBUDDY.md 帮我安装内容工作台。先检查 Windows、uv、Node.js 和端口，再在当前目录运行 deploy/install-windows.ps1。使用全新的本机私有数据目录，不复制其他安装的内容和账号。装好后验证能新建、保存、刷新与重启后读回稿件，以及上传图片；给我可点击的网址和以后打开的方法。安装验收不调用 AI、不连接平台、不发布。需要我补充的信息一次问齐；失败时说明具体步骤与错误，不把未通过的功能说成已完成。
-
-## 功能与接通边界
-
-| 功能 | 开箱条件 |
+| 创作环节 | 工作台提供的功能 |
 |---|---|
-| 素材、选题、稿件、分组、批注、图片与版本管理 | 安装后本机使用 |
-| 写稿时并排参考多篇原文、链接批量导入与视频素材入口 | 提供自己的内容；网页登录、反爬和访问权限以平台实际结果为准 |
-| 外部对话生成后归档正文与图片 | 本机归档接口和脚本保留，需明确确认本篇内容 |
-| 正文→整组配图预览→选择编号→独立配图 | 需要自行安装并登录兼容的 Codex CLI；型号和生图能力受账户权限限制，未接通会报错，不保证免费 |
-| AI 拆解、写作、改稿，DeepSeek 官方接口入口 | 自行选择、授权模型并承担相应费用；新安装默认禁用文字模型 |
-| 飞书、公众号、X、知识星球、小红书及视频模块 | 代码入口保留，需要自己的账号、凭据及可用依赖；没有替新用户完成平台端到端验收 |
+| 收集素材 | 保存文字、链接和录音素材，按需连接飞书 |
+| 研究对标 | 阅读原文、整理拆解，与写作内容并排参考 |
+| 整理选题 | 将材料和观点组织成选题，保留引用来源 |
+| 写作与修改 | 编辑正文、添加批注、管理版本，按需连接 AI 辅助起草 |
+| 制作配图 | 从正文生成编号预览，选定后制作单张图片；支持自带角色参考 |
+| 排版与归档 | 五款内置通用配色、正文预览，保存文章与配图 |
+| 平台连接 | 按需配置公众号、X、小红书等平台入口 |
 
-自动飞书采集与同步默认关闭。基础安装无需配置任何模型密钥。工作台不是平台官方客户端，接口和网页变化可能导致外部功能失效。
+**本机存储，按需接入。** 基础素材、稿件和图片管理无需模型密钥。AI 写作、配图、语音转写与平台连接分别配置；可用能力和费用取决于你选择的服务及账号。新安装默认关闭文字模型与飞书自动同步。
+
+## 快速安装
+
+目前提供 **Windows 10/11** 安装流程。选择下面任意一种方式即可：
+
+### 方式一：交给你常用的 Agent
+
+[下载 v1.0.1 ZIP](https://github.com/zengfy9-cmd/content-workbench-community/releases/download/v1.0.1/content-workbench-community-v1.0.1.zip)，解压到独立目录，再用支持本机文件读写与终端执行的 Agent 打开它。
+
+| 工具 | 从哪里开始 |
+|---|---|
+| **WorkBuddy** | 选择解压目录，复制[WorkBuddy 逐步安装指令](docs/WORKBUDDY.md) |
+| **Codex** | 将解压目录作为项目打开，在该项目聊天中粘贴下方指令 |
+| **Claude Code** | 在解压目录打开终端，运行已安装的 `claude`，粘贴下方指令 |
+| **Cursor** | 打开解压目录，使用支持执行终端命令的 Agent 模式，粘贴下方指令 |
+| **其他本机 Agent** | 将工作目录设为解压目录，并允许其读取文件、执行安装命令，再粘贴下方指令 |
+
+Agent 本身需要先安装并能正常使用。以上工具复用同一 Windows 安装脚本；只有聊天能力、无法访问本机文件或执行命令的工具，请改用下方手动安装。
+
+复制给 Agent：
+
+```text
+请帮我安装当前目录的 catcat.内容创造工作台。
+先阅读 AGENTS.md、README.md 和 docs/AGENT_INSTALL.md。
+检查 Windows、uv、Node.js、Python 3.13 安装能力和端口，
+然后运行 deploy/install-windows.ps1。
+使用本次安装独立的私有数据目录。
+装好后验证临时稿件和图片的保存、刷新与重启读回，
+只清理本次验收创建的临时内容。
+给我可点击的网址、日后启动方法和数据目录。
+先完成基础安装；需要 AI 或平台功能时，再由我选择服务和连接自己的账号。
+```
+
+详细步骤与排错见 [通用 Agent 安装指南](docs/AGENT_INSTALL.md)。
+
+### 方式二：手动运行安装脚本
+
+准备好 uv 和 Node.js 后，在解压目录打开 PowerShell：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\install-windows.ps1
+```
+
+安装完成后访问 **http://localhost:8765**。详细依赖、数据目录和端口说明见下方。
+
+> v1.0.1 的 Windows ZIP 安装流程已完成云端验收，包含保存、重启读回与页面加载。[运行记录](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41991087689) · [验收范围](docs/CLOUD_VALIDATION.md)。其他 Agent 入口共用安装脚本，未逐一进行客户端实机验收。
+
+## 第一次使用
+
+1. 在素材库保存一份自己的文字或链接。
+2. 整理一个选题，创建稿件并添加图片。
+3. 在编辑器中修改、批注和预览正文。
+4. 需要 AI 写作、配图或平台功能时，在对应入口配置自己的服务。
 
 ## Windows 手动安装
 
@@ -51,7 +96,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\install-windows.ps1
 
 ## 自定义配图
 
-在配图页面填写自己的风格要求。需要固定角色时，将自己有权使用的 PNG/JPG/WEBP 参考图放进私有目录下 `article-images/references`，最多 5 张。不附带原安装者的角色、成品图或专属提示词。没有参考图也可按正文与补充要求设计。CLI 型号与权限不匹配时保留真实错误，由用户选择处理方式。
+在配图页面填写自己的风格要求。需要固定角色时，将自己有权使用的 PNG/JPG/WEBP 参考图放进私有目录下 `article-images/references`，最多 5 张。没有参考图也可按正文与补充要求设计。CLI 型号与权限不匹配时保留真实错误，由用户选择处理方式。
 
 ## 开发与验证
 
@@ -63,4 +108,8 @@ npm.cmd ci
 npm.cmd run build
 ```
 
-源码不包含 .venv、node_modules、构建产物、数据库或截图。完整回归使用临时数据目录；平台投递、真实模型生成和真实账号授权需要另行验收。见 [脱敏说明](docs/PRIVACY.md)。
+源码不包含 .venv、node_modules、构建产物、数据库或截图。完整回归使用临时数据目录；平台投递、真实模型生成和真实账号授权需要另行验收。见 [数据与隐私](docs/PRIVACY.md)。
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)。
