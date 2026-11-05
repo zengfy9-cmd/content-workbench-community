@@ -51,7 +51,12 @@ server.run()
                     time.sleep(.1)
                 raise RuntimeError('Server startup timed out')
             except BaseException:
-                client.post('/api/__smoke/stop').raise_for_status(); process.wait(timeout=15)
+                if process.poll() is None:
+                    try:
+                        httpx.post(base + '/api/__smoke/stop', headers={'Origin':settings.origins[0]}, trust_env=False).raise_for_status()
+                    except httpx.HTTPError:
+                        process.terminate()
+                    process.wait(timeout=15)
                 raise
         process = start()
         try:
@@ -64,7 +69,7 @@ server.run()
                 response = client.post(f'/api/drafts/{did}/images', files={'files':('test.png',image.getvalue(),'image/png')})
                 response.raise_for_status(); iid = response.json()[0]['id']
                 assert client.get(f'/api/drafts/{did}').json()['body'] == '只用于测试保存和重启读回。'
-                process.terminate(); process.wait(timeout=10)
+                client.post('/api/__smoke/stop').raise_for_status(); process.wait(timeout=15)
                 process = start()
                 assert client.get(f'/api/drafts/{did}').json()['title'] == '安装验收临时稿'
                 assert client.get(f'/api/images/{iid}').content == image.getvalue()

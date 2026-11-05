@@ -1,0 +1,38 @@
+name: Clean Windows release installation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published release to download and install
+        default: v1.0.0
+        required: true
+  push:
+    paths:
+      - .github/workflows/windows-install.yml
+      - scripts/smoke_local.py
+      - scripts/verify_release_windows.ps1
+
+permissions:
+  contents: read
+
+jobs:
+  install-release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || 'v1.0.0' }}
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          enable-cache: false
+      - name: Download, verify, install and test the public ZIP
+        shell: pwsh
+        run: ./scripts/verify_release_windows.ps1
