@@ -78,7 +78,7 @@ def test_scys_uses_mcp_path_even_with_capitalized_host(monkeypatch):
     c, _ = setup()
     monkeypatch.setattr(scys_reference, 'read', lambda store, url: {"title": "真实来源", "body": "原文", "url": url})
     monkeypatch.setattr(references, 'read_article', lambda url: pytest.fail('Shengcai must never be crawled'))
-    value = c.post('/api/benchmarks/read', json={"url": 'https://ScYs.CoM/articleDetail/xq_topic/82258281815841122'}, headers=H)
+    value = c.post('/api/benchmarks/read', json={"url": 'https://ScYs.CoM/articleDetail/xq_topic/10000000000000001'}, headers=H)
     assert value.status_code == 200 and value.json()['body'] == '原文'
 
 
@@ -190,6 +190,8 @@ def test_draft_reuses_real_editor_and_never_receives_reference_facts_or_publish_
     assert c.get(f'/api/drafts/{other}').json()['body'] == ''
     sent = {}
     monkeypatch.setattr(publish, 'wx_draft', lambda *a, **k: sent.update(k) or {"media_id": "LOCAL_TEST"})
+    from review_helpers import reviewed
+    reviewed(c,did)
     assert c.post(f'/api/drafts/{did}/publish', json={"confirm": True, "target": "wechat"}, headers=H).status_code == 200
     assert BODY not in sent['html'] and '原作者' not in sent['html']
     assert '只发布我的内容' in sent['html']

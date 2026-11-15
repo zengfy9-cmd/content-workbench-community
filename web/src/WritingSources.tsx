@@ -1,0 +1,6 @@
+export type AutoSources={notice:string;query:string;materials:Hit[];benchmarks:Hit[];tips:Hit[]}
+type Hit={id:number;title:string;excerpt:string;category?:string;origin?:string;validation?:string;matched_terms:string[];start:number;end:number}
+export function WritingSources({sources}:{sources?:AutoSources}){
+ if(!sources)return <p className="small muted">此旧稿未保存自动检索快照；可查看实际提示词记录，不补造历史依据。</p>
+ return <details className="brief-more" open><summary>自动筛选的参考资料 · 素材 {sources.materials.length} · 对标 {sources.benchmarks.length} · 灵感 {sources.tips.length}</summary><p className="small muted">{sources.notice} 手选对标为主要骨架，自动对标仅补充；只有明确属于你的经历才用第一人称。</p>{(['materials','benchmarks','tips'] as const).map(kind=><div key={kind}><strong className="small">{{materials:'素材库',benchmarks:'相关对标',tips:'金句、开头与技巧'}[kind]}</strong>{sources[kind].length?sources[kind].map(s=><details key={s.id}><summary><a href={kind==='tips'?'#/tips':`#/${kind}/${s.id}`} target="_blank" rel="noreferrer">#{s.id} {s.title}</a> {s.category} {s.origin} {s.validation}</summary><p className="small muted">匹配：{s.matched_terms.join('、')} · 原文字位 {s.start}–{s.end}</p><pre className="prep-rule">{s.excerpt}</pre></details>):<p className="small muted">未找到相关候选</p>}</div>)}</details>
+}

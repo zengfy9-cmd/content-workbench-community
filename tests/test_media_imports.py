@@ -103,6 +103,8 @@ def test_delivery_copy_export_do_not_mark_published(monkeypatch):
         assert c.post(f'/api/drafts/{did}/delivery-record',json={'kind':kind},headers=H).status_code==200
         assert c.get(f'/api/drafts/{did}').json()['status']=='draft'
     assert c.post(f'/api/drafts/{did}/delivery-record',json={'kind':'manual_published','url':'https://www.xiaohongshu.com/a'},headers=H).status_code==400
+    from review_helpers import reviewed
+    reviewed(c,did)
     assert c.post(f'/api/drafts/{did}/delivery-record',json={'kind':'manual_published','confirm':True,'url':'https://www.xiaohongshu.com/a'},headers=H).status_code==200
     assert c.get(f'/api/drafts/{did}').json()['status']=='published'
 
@@ -221,10 +223,10 @@ def test_share_copy_extracts_one_link_without_running_services(monkeypatch):
     monkeypatch.setattr(media,'queue',lambda mid:None)
     with client() as c:
         login(c)
-        response=c.post('/api/media-imports',headers=H,json={'url':'2.07 复制打开抖音，看看【作者的作品】 AI学习 https://v.douyin.com/HyG9kZK7l2E/ 08/15 :8pm qe:/ b@a.At'})
+        response=c.post('/api/media-imports',headers=H,json={'url':'2.07 复制打开抖音，看看【作者的作品】 AI学习 https://v.douyin.com/DemoLink123/ 08/15 :8pm qe:/ b@a.At'})
         assert response.status_code==200
-        assert response.json()['url']=='https://v.douyin.com/HyG9kZK7l2E/'
+        assert response.json()['url']=='https://v.douyin.com/DemoLink123/'
         assert response.json()['source_platform']=='抖音'
-        duplicate=c.post('/api/media-imports',headers=H,json={'url':'https://v.douyin.com/HyG9kZK7l2E/'})
+        duplicate=c.post('/api/media-imports',headers=H,json={'url':'https://v.douyin.com/DemoLink123/'})
         assert duplicate.json()['id']==response.json()['id']
         assert c.post('/api/media-imports',headers=H,json={'url':'两个 https://v.douyin.com/a/ https://v.douyin.com/b/'}).status_code==400

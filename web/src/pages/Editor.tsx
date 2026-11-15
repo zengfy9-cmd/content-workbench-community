@@ -1,4 +1,7 @@
+import { DraftWorkflow } from '../DraftWorkflow'
+import { PromptTrace } from '../AiRules'
 import { WritingContextSummary } from '../WritingPreparation'
+import { WritingModelPicker, useWritingModel } from '../WritingModelPicker'
 import { clearRecovery, readRecovery, snapshotKey, writeRecovery, type DraftSnapshot, type Recovery } from '../draftRecovery'
 import { enableHoverScroll } from '../hoverScroll'
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
@@ -23,7 +26,7 @@ import { PaneResizer } from '../PaneResizer'
 import { usePaneContainer, usePaneSize } from '../usePaneSize'
 import type { Editor as TiptapEditor } from '@tiptap/react'
 
-type Preview = { flags: string[]; thread?: { index: number; text: string; weighted: number; over: boolean }[]; html?: string; wechat_theme?: string; layout?: { has_title: boolean; inferred_headings: number } }
+type Preview = { flags: string[]; thread?: { index: number; text: string; weighted: number; over: boolean }[]; html?: string; wechat_theme?: string; layout?: { has_title: boolean; inferred_headings: number }; branding?: { enabled: boolean; number: number | null; needs_start_number: boolean } }
 type Version = { id: number; title: string; body: string; created_at: number; origin: string }
 type SideTab = 'tips' | 'prep' | 'reference' | 'preview' | 'comments' | 'media' | 'xhs' | 'video' | 'cases' | 'notes' | 'voice' | 'log'
 
@@ -54,6 +57,8 @@ const SIDE_KEY = 'cw-editor-side'
 export function Editor({ id, status, studyId, studyKey }: { id: number; status: Status | null; studyId?: number; studyKey?: string }) {
   const toast = useToast()
   const [draft, setDraft] = useState<Draft | null>(null)
+  const writingModel = useWritingModel(draft?.status === 'failed')
+  const [retryingDraft, setRetryingDraft] = useState(false)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [notes, setNotes] = useState('')
@@ -80,13 +85,15 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
   const [preview, setPreview] = useState<Preview | null>(null)
   const [tab, setTab] = useState<SideTab>('reference')
   const [moreTabs,setMoreTabs]=useState(false)
-  const [sideOpen, setSideOpen] = useState(() => { try { return localStorage.getItem(SIDE_KEY) !== 'closed' } catch { return true } })
+  const [tipCount,setTipCount]=useState(0)
+  const [sideOpen, setSideOpen] = useState(() => { try { return localStorage.getItem(SIDE_KEY) === 'open' } catch { return false } })
   const [originalOpen,setOriginalOpen]=useState(()=>{try{return localStorage.getItem('cw-editor-original')==='open'}catch{return false}})
   function toggleOriginal(){setOriginalOpen(v=>{try{localStorage.setItem('cw-editor-original',v?'closed':'open')}catch{/* optional preference */}return !v})}
   const workspace = usePaneContainer(!!draft)
   const middlePane=usePaneSize({key:'cw-pane-study-middle-v1',width:workspace.width,initial:360,ratio:.30,min:240,max:850,remaining:560})
-  const previewPane = usePaneSize({ key: 'cw-pane-editor-side-v1', width: workspace.width-middlePane.size, initial: 400, min: 280, max: 760, remaining: 360 })
-  const referencePane = usePaneSize({ key: 'cw-pane-editor-reference-v1', width: workspace.width-middlePane.size, initial: 340, min: 280, max: 900, remaining: 320 })
+  const sideWidth = workspace.width - (originalOpen ? middlePane.size : 0)
+  const previewPane = usePaneSize({ key: 'cw-pane-editor-side-v1', width: sideWidth, initial: 400, min: 280, max: 760, remaining: 360 })
+  const referencePane = usePaneSize({ key: 'cw-pane-editor-reference-v1', width: sideWidth, initial: 340, min: 280, max: 900, remaining: 320 })
   const [studySource,setStudySource]=useState<Benchmark|null>(null)
   const [studyLocation,setStudyLocation]=useState(studyKey || '')
   const sidePane = tab === 'reference' ? referencePane : previewPane
@@ -125,6 +132,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
           const recovery=readRecovery(id)
           if(recovery && snapshotKey(recovery.value)!==savedBase.current){
             if(recovery.base===savedBase.current){next=recovery.value;setRecoveryNotice('已恢复上次未保存的修改，正在补存。')}
+            else if((d.updated_at||0)>(recovery.at||0)/1000){clearRecovery(id);setRecoveryNotice('服务器正文后来更新过（例如插图），本机旧草稿已丢弃。')}
             else {setRecoveryConflict(recovery);setRecoveryNotice('找到本机未保存草稿，服务器也有变化。请先选择保留哪一份。')}
           }else if(recovery)clearRecovery(id)
           // Preserve existing browser-only red marks on first upgrade.
@@ -182,7 +190,10 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
     setActiveThread(tid)
     if (tid == null) return
     setSideOpen(true); setTab('comments')
-    window.setTimeout(() => document.querySelector(`.cm-anchor[data-cid="${tid}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50)
+    window.setTimeout(() => {
+      document.querySelector(`.cm-anchor[data-cid="${tid}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      document.querySelector(`[data-thread="${tid}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }, 50)
   }
 
   async function revise() {
@@ -275,10 +286,10 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
     const request = ++previewRequest.current
     let active = true
     const t = window.setTimeout(() => {
-      api.post<Preview>('/api/preview', { platform: draft.platform, title, body, wechat_theme: wechatTheme }).then(result => {
+      api.post<Preview>('/api/preview', { platform: draft.platform, draft_id: id, title, body, wechat_theme: wechatTheme }).then(result => {
         if (!active || request !== previewRequest.current) return
         setPreview(result); setPreviewBody(body); setPreviewTitle(title)
-      }).catch(() => {})
+      }).catch(() => { if (active && request === previewRequest.current) setPreview(null) })
     }, 500)
     return () => { active = false; window.clearTimeout(t) }
     // The title is part of a themed article header as well as the saved draft.
@@ -292,7 +303,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
     const sourceTitle = title
     setFormatting(true)
     try {
-      const result = await api.post<Preview>('/api/preview', { platform: 'wechat', title: sourceTitle, body: source, wechat_theme: theme })
+      const result = await api.post<Preview>('/api/preview', { platform: draft?.platform || 'wechat', draft_id: id, title: sourceTitle, body: source, wechat_theme: theme })
       if (result.wechat_theme !== theme) {
         throw new Error('排版服务尚未更新，请重启工作台后台服务后刷新页面')
       }
@@ -301,11 +312,12 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
       }
       setWechatTheme(theme); setPreview(result); setPreviewBody(source); setPreviewTitle(sourceTitle)
       selectTab('preview'); setSideOpen(true)
-      toast(theme ? '已按 通用 样式排版，正文保持不变' : '已恢复原排版')
+      toast(theme ? '已按 xilo 样式排版，正文保持不变' : '已恢复原排版')
     } catch (e) { toast((e as Error).message, 'error') } finally { setFormatting(false) }
   }
 
   async function copyLayout() {
+    if (preview?.branding?.needs_start_number) { toast('请先保存本篇原创编号', 'error'); return }
     if (!preview?.html || previewBody !== body || previewTitle !== title || preview.wechat_theme !== wechatTheme) return
     try { await copyWechatLayout(preview.html); toast('已复制排版，可粘贴到公众号编辑器') }
     catch (e) { toast((e as Error).message, 'error') }
@@ -319,7 +331,9 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
     try { localStorage.setItem(`cw-reference-visible-${id}`, String(next === 'reference'));localStorage.setItem(`cw-study-tab-${id}`,next) } catch { /* */ }
   }
   function openReferences() {
+    if (sideOpen && tab === 'reference') { toggleSide(); return }
     selectTab('reference'); setSideOpen(true)
+    try { localStorage.setItem(SIDE_KEY, 'open') } catch { /* optional preference */ }
     try { localStorage.setItem(SIDE_KEY, 'open') } catch { /* */ }
   }
   async function allowReferenceLearning(value: boolean) {
@@ -330,7 +344,11 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
   }
   async function openPublish() {
     if (!await save()) return
-    setConfirming(true)
+    try {
+      const state=await api.get<{layout_ok:boolean}>(`/api/drafts/${id}/workflow`)
+      if(!state.layout_ok){toast('请先解决批注和待改标记，并确认正文与排版审核','error');return}
+      setConfirming(true)
+    }catch(e){toast((e as Error).message,'error')}
   }
   async function remove() {
     if (!window.confirm('删除这篇稿子？历史版本也会一起删掉。')) return
@@ -352,7 +370,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
     .filter(k => (k !== 'cases' || status?.case_search) && (!platformOnly || !['media','xhs','video'].includes(k)))
   const revising = draft.status === 'revising'
   const todo = waiting(threads)
-  const openCount = threads.filter(t => t.status === 'open').length
+  const openCount = threads.filter(t => t.status === 'open'&&!t.draft_record).length
   let revision: RevisionInfo | null = null
   try { revision = draft.last_revision ? JSON.parse(draft.last_revision) : null } catch { revision = null }
   const showRevision = !!revision && !revising && hiddenRevision !== revision.after
@@ -368,14 +386,14 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
             <span className="t">{title || '未命名'}</span>
           </div>
           <span className="save-state" aria-live="polite">
-            {saved === 'saving' ? <><Ic.Loader size={12} /> 保存中</> : saved === 'dirty' ? '有改动' : savedAt ? <><Ic.Check size={12} /> 已保存</> : `上次编辑 ${ago(draft.updated_at)}`}
+            {saved === 'saving' ? <><Ic.Loader size={12} /> 保存中</> : saved === 'dirty' ? '有改动' : savedAt ? <><Ic.Check size={12} /> {status?.storage?.mode==='cloud'?'已保存到云端':'已保存'}</> : `上次编辑 ${ago(draft.updated_at)}`}
           </span>
           <div className="right">
             <button className="btn sm" disabled={saved==='saving'||!!recoveryConflict} onClick={()=>void save()}>保存</button>
-            <button className="btn sm" aria-expanded={originalOpen} aria-controls="study-middle" onClick={toggleOriginal}>{originalOpen?'收起对标':'展开对标'}</button>
-            <button className="btn sm reference-trigger" aria-pressed={sideOpen && tab === 'reference'} onClick={openReferences}><Ic.Doc size={15} /> 分析</button>
+            <button className="btn sm" aria-expanded={originalOpen} aria-controls="study-middle" onClick={toggleOriginal}>{originalOpen?'收起对标原文':'对标原文'}</button>
+            <button className="btn sm reference-trigger" aria-pressed={sideOpen && tab === 'reference'} onClick={openReferences}><Ic.Doc size={15} /> 解析</button>
             {draft.platform==='wechat' && <button className="btn sm wechat-layout-trigger" disabled={generating || revising || formatting || !body.trim()}
-              onClick={() => applyWechatLayout()} title="按 通用 的公众号样式排版，保留文章原文">
+              onClick={() => applyWechatLayout()} title="按 xilo 的公众号样式排版，保留文章原文">
               {formatting ? <Ic.Loader size={15} /> : <Ic.Sparkle size={15} />} {formatting ? '排版中…' : '一键排版'}
             </button>}
             <button className="btn ghost icon" aria-label="历史版本" title="历史版本" onClick={async () => setVersions(await api.get<Version[]>(`/api/drafts/${id}/versions`))}><Ic.History /></button>
@@ -393,9 +411,22 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
         <div className="editor-scroll">
           <div className="writing">
             {researchHint && <div className="research-writing-hint"><div className="row"><strong>本篇参考 · {researchHint.card.role}</strong><button className="btn ghost icon sm" aria-label="收起本篇参考提示" onClick={() => setResearchHint(null)}><Ic.Close size={14} /></button></div><p>{researchHint.card.adaptation}</p><div className="small muted">待补充：{researchHint.card.needs.join('、') || '你自己的事实与观点'}</div></div>}
-            {studyId && !body.trim() && !researchHint && <div className="research-writing-hint"><strong>对照左侧结构，写自己的文章</strong><p>先填写标题，再记录真实任务、尝试过程、结果依据与适用条件。</p><span className="small muted">点击左侧“用于仿写”，可把所需材料提示放到这里。</span></div>}
+            {studyId && !body.trim() && !researchHint && <div className="research-writing-hint"><strong>对照对标结构，写自己的文章</strong><p>先填写标题，再记录真实任务、尝试过程、结果依据与适用条件。</p><span className="small muted">打开右侧“解析”，可以把对标的写作提示带到这里。</span></div>}
             {recoveryNotice && <div className="callout recovery-notice" role="status"><span>{recoveryNotice}</span>{recoveryConflict && <div className="row wrap"><button className="btn" onClick={()=>{restoreFields(recoveryConflict.value);setRecoveryConflict(null);setRecoveryNotice('已恢复本机草稿，可继续编辑。')}}>恢复本机草稿</button><button className="btn" onClick={()=>{clearRecovery(id);setRecoveryConflict(null);setRecoveryNotice('继续使用服务器稿件。')}}>保留服务器稿件</button><details><summary>比较本机草稿</summary><pre style={{whiteSpace:'pre-wrap'}}>{recoveryConflict.value.title+'\n\n'+recoveryConflict.value.body}</pre></details></div>}</div>}
-            {draft.status === 'failed' && <div className="callout" style={{ marginBottom: 18 }}><Ic.Alert size={15} /><span>起草失败：{draft.error}</span></div>}
+            {draft.status === 'failed' && <div className="callout" style={{ marginBottom: 18 }}><Ic.Alert size={15} /><div className="stack"><span>起草失败：{draft.error}</span>
+              {draft.idea_id && !body.trim() && <>
+                <WritingModelPicker model={writingModel} disabled={retryingDraft}/>
+                <button className="btn" disabled={retryingDraft || writingModel.loading || !!recoveryConflict} onClick={async () => {
+                  setRetryingDraft(true)
+                  try {
+                    if (!await save()) return
+                    await api.post(`/api/drafts/${id}/retry-draft`, { writing_model: writingModel.value })
+                    loaded.current = false; setPoll(value => value + 1)
+                    toast('已按所选模型重新起草')
+                  } catch (error) { toast((error as Error).message, 'error') } finally { setRetryingDraft(false) }
+                }}>{retryingDraft ? '正在提交…' : '按所选模型重新起草'}</button>
+              </>}
+            </div></div>}
             {revising && <div className="callout info revise-note"><Ic.Loader size={15} /><span>AI 正在按你的批注改稿，一般一两分钟，改好会自动刷新。这期间正文先锁住。</span></div>}
             {showRevision && revision && (
               <div className="callout info revise-note">
@@ -408,7 +439,8 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
                 </span>
               </div>
             )}
-            {draft.writing_context && <WritingContextSummary context={draft.writing_context}/>}
+            <DraftWorkflow id={id} platform={draft.platform} save={save} getSavedStamp={()=>serverStamp.current} onComments={threadId=>{void loadThreads();if(threadId!==undefined)focusThread(threadId);else{setSideOpen(true);setTab('comments')}}} onLocateMark={markId=>{const target=document.querySelector(`.review-issue[data-issue-id="${markId}"]`);if(target)target.scrollIntoView({block:'center',behavior:'smooth'});else toast('原位置已变化，请按上方标记文字核对；核对后可清除这条标记。')}} onClearMark={markId=>setReviewIssues(marks=>marks.filter(mark=>mark.id!==markId))} onPreview={()=>{setSideOpen(true);setTab('preview')}} onImages={()=>go(`illustrations?draft=${id}`)}/>
+            {draft.writing_context && <WritingContextSummary context={draft.writing_context} body={draft.body}/>}<PromptTrace kind="writing" id={draft.id}/>
             {generating ? (
               <div className="gen-wait">
                 <div className="row muted"><Ic.Sparkle size={16} /> 正在按你的文风起草，一般一两分钟，好了会自动出现。</div>
@@ -444,9 +476,9 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
           <div className="side-tabs-header"><button className="btn ghost icon sm side-collapse" aria-label="收起分析侧栏" title="收起分析侧栏" onClick={toggleSide}><Ic.Close size={16}/></button><div className="side-tabs" role="tablist">
             {tabs.filter(k=>moreTabs||['reference','prep','comments','preview'].includes(k)||k===tab).map(k => (
               <button key={k} role="tab" aria-selected={tab === k} onClick={() => selectTab(k)}>
-                {k === 'reference' && <><Ic.Doc size={15} /> 分析</>}
+                {k === 'reference' && <><Ic.Doc size={15} /> 解析</>}
                 {k === 'prep' && <><Ic.Doc size={15} /> 写作准备</>}
-                {k === 'tips' && <><Ic.Bulb size={15} /> 内容灵感技巧</>}
+                {k === 'tips' && <><Ic.Bulb size={15} /> 内容灵感技巧{tipCount > 0 && <span className="badge accent">{tipCount}</span>}</>}
                 {k === 'preview' && <><Ic.Eye size={15} /> 预览</>}
                 {k === 'comments' && <><Ic.Note size={15} /> 批注{openCount > 0 && <span className="badge accent">{openCount}</span>}</>}
                 {k === 'media' && <><Ic.Image size={15} /> 封面·配图</>}
@@ -460,8 +492,8 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
             ))}<button className="btn ghost sm" aria-expanded={moreTabs} onClick={()=>setMoreTabs(v=>!v)}>{moreTabs?'收起更多':'更多 ▾'}</button>
           </div>
           </div><div className={'side-body' + (tab === 'reference' ? ' reference-side-body' : '')}>
-            {tab === 'tips' && <TipsPanel compact onUse={text=>{setNotes(n=>(n.trim()?n.trimEnd()+'\n\n':'')+text);setTab('notes');toast('已带入写作准备，保存在本篇备注')}}/>}
-            {(tab === 'reference' || tab === 'prep') && <StudyAnalysis preparationOnly={tab==='prep'} source={studySource} onSource={setStudySource} onLocate={key=>setStudyLocation(key+'|'+Date.now())}
+            {tab === 'tips' && <TipsPanel compact draftId={id} onUsedChange={setTipCount} onUse={text=>{setNotes(n=>(n.trim()?n.trimEnd()+'\n\n':'')+text);setTab('notes');toast('已带入写作准备，保存在本篇备注')}}/>}
+            {(tab === 'reference' || tab === 'prep') && <StudyAnalysis preparationOnly={tab==='prep'} source={studySource} onSource={setStudySource} onLocate={key=>{setOriginalOpen(true);setStudyLocation(key+'|'+Date.now())}}
               allowLearning={!!draft.allow_reference_learning} onLearning={allowReferenceLearning}
               onUse={(card,sourceTitle)=>{setResearchHint({card,title:sourceTitle});richRef.current?.commands.focus('end')}}/>}
             {tab === 'comments' && (
@@ -475,6 +507,12 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
               {!platformOnly && <WechatLayoutControls themes={wechatThemes} theme={wechatTheme} busy={formatting || generating || revising}
                 canCopy={!!preview?.html && previewBody === body && previewTitle === title && preview.wechat_theme === wechatTheme}
                 inferredHeadings={preview?.layout?.inferred_headings || 0}
+                branding={preview?.branding} onNumber={async number => {
+                  const saved = await api.put<{ number: number; shared_with?: { draft_id: number; title: string }[] }>(
+                    `/api/drafts/${id}/wechat-number`, { number })
+                  await applyWechatLayout()
+                  return saved
+                }}
                 onTheme={applyWechatLayout} onCopy={copyLayout} />}
               {!wechatTheme && <FeedCard draft={draft} title={title} summary={summary} body={body} />}
             </>}

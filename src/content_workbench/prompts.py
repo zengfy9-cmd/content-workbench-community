@@ -55,7 +55,7 @@ def voice_guide(settings: Settings) -> str:
 
 def boss_manual(settings: Settings) -> str:
     path = Path(settings.manual_path).expanduser() if settings.manual_path else \
-        Path(settings.kb_root).expanduser() / "1-老板说明书/老板说明书.md" if settings.kb_root else Path("/nonexistent")
+        Path("/nonexistent")
     return path.read_text(encoding="utf-8")[:6000] if path.exists() else ""
 
 
@@ -65,7 +65,7 @@ def exemplar_paths(settings: Settings, query: str, mode: str) -> list[Path]:
         return []
     proc = subprocess.run([sys.executable, str(script), "--mode", mode, "--query", query[:200], "--limit", "2",
                            "--kb-root", settings.kb_root], capture_output=True, text=True, timeout=60)
-    found = re.findall(r"^- `(7-历史表达与飞书精选/公众号原文/[^`]+)`", proc.stdout, re.M)
+    found = re.findall(r"^- `([^`]+)`", proc.stdout, re.M)
     return [Path(settings.kb_root) / rel for rel in found]
 
 
@@ -177,8 +177,15 @@ DRAFT_WECHAT = """你在帮 {name} 写一篇公众号底稿。这是给他自己
 
 需要 {name} 亲自写一句、或者要他确认的地方，不要在正文里用【】占位，放进 comments：quote 是正文里你想挂批注的那一小段原文（纯文字，不带 Markdown 符号，40 字以内），text 是要他做的事。
 
+逐段交出来源。正文里每用到工作台资料（对标、素材、内容灵感、选题卡、本人补充）的地方，都要在 sources 里写一条：
+- kind：对标 / 素材 / 灵感 / 选题 / 自述
+- ref：资料编号，例如 "#28"；本人补充写 "本人补充"
+- where：正文里那段话的开头 12 个字，必须能在正文里原样找到
+- note：用了它的什么（观点、事实、结构、金句）
+凡是资料里没有、由你补写的过渡句或修辞，不要编来源；没有来源的段落不要出现在 sources 里。sources 只列真正用到的，列全，不重复。
+
 只输出一个 JSON 对象：
-{{"title": "标题", "body": "正文 Markdown（不含标题）", "notes": "改稿备注：要核实的事实、用到的素材和出处", "comments": [{{"quote": "正文原文里的一小段", "text": "要他补的话或要确认的事"}}]}}
+{{"title": "标题", "body": "正文 Markdown（不含标题）", "notes": "改稿备注：要核实的事实、用到的素材和出处", "comments": [{{"quote": "正文原文里的一小段", "text": "要他补的话或要确认的事"}}], "sources": [{{"kind": "素材", "ref": "#66", "where": "正文开头12字", "note": "观点：模型会变，上下文不会"}}]}}
 """
 
 DRAFT_X = """你在帮 {name} 写 X（推特）上的中文内容底稿，给他自己改。

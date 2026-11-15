@@ -88,11 +88,15 @@ def test_push_to_wechat_uploads_pictures_once(monkeypatch):
     monkeypatch.setattr(publish, "wx_upload_material", material)
     monkeypatch.setattr(publish, "wx_draft", draft)
     for _ in range(2):
+        from review_helpers import reviewed
+        reviewed(c,did)
         r = c.post(f"/api/drafts/{did}/publish", json={"confirm": True, "target": "wechat"}, headers=H)
         assert r.status_code == 200, r.text
     assert calls == {"inline": 1, "material": 1}
     assert sent["cover"] == "COVER_MEDIA" and sent["crop_11"] == "0_0_0.425532_1" and sent["source_url"] == "https://github.com/x/y"
     assert sent["html"].count('src="https://mmbiz.qpic.cn/pic/1"') == 2 and "/api/images/" not in sent["html"]
+    from review_helpers import reviewed
+    reviewed(c,did)
     assert c.post(f"/api/drafts/{did}/publish", json={"confirm": True, "target": "x"}, headers=H).status_code == 400
 
 
@@ -101,6 +105,8 @@ def test_push_to_wechat_rejects_outside_pictures(monkeypatch):
     login(c)
     did = new_longform(c, "![](https://example.com/a.png)")
     monkeypatch.setattr(publish, "wx_draft", lambda *a, **k: {"media_id": "X"})
+    from review_helpers import reviewed
+    reviewed(c,did)
     r = c.post(f"/api/drafts/{did}/publish", json={"confirm": True}, headers=H)
     assert r.status_code == 400 and "不是从工作台插入的图片" in r.json()["detail"]
 
@@ -135,6 +141,8 @@ def test_push_to_x_article(monkeypatch):
     monkeypatch.setattr(publish, "x_upload_image", lambda store, data, mime, name: (uploaded.append(name) or f"m{len(uploaded)}", 9e12))
     got = {}
     monkeypatch.setattr(publish, "x_article_draft", lambda store, title, state, cover: got.update(title=title, state=state, cover=cover) or {"article_id": "42"})
+    from review_helpers import reviewed
+    reviewed(c,did)
     r = c.post(f"/api/drafts/{did}/publish", json={"confirm": True, "target": "x_article"}, headers=H)
     assert r.status_code == 200, r.text
     assert got["cover"] == "m2" and got["title"] == "长文" and len(uploaded) == 2
@@ -179,6 +187,8 @@ def test_push_to_zsxq_uploads_once_and_updates_the_same_draft(monkeypatch):
         return {"article_id": "art1"}
     monkeypatch.setattr(zsxq, "call", fake_call)
     for _ in range(2):
+        from review_helpers import reviewed
+        reviewed(c,did)
         r = c.post(f"/api/drafts/{did}/publish", json={"confirm": True, "target": "zsxq"}, headers=H)
         assert r.status_code == 200, r.text
     assert len(uploads) == 1 and saved[0]["article_id"] == "" and saved[1]["article_id"] == "art1"

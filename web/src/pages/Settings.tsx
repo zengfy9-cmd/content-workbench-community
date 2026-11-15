@@ -1,3 +1,4 @@
+import { AiRules, ImageApiSettings } from '../AiRules'
 import { useEffect, useRef, useState } from 'react'
 import { startRegistration } from '@simplewebauthn/browser'
 import { api, type Status } from '../api'
@@ -9,10 +10,11 @@ import { DeepSeekSettings } from '../DeepSeekSettings'
 
 type SettingsData = {
   llm_backend: 'claude-code' | 'model-api' | 'deepseek-api' | 'codex-cli' | 'disabled'; llm_model: 'sonnet' | 'opus'
+  writing_model: '' | 'claude-opus-5-5' | 'deepseek-v4-pro'
   deepseek_routes: Record<string, { model: string; label: string }>
   feishu_auto_sync: boolean; feishu_auto_archive: boolean
   author: string; rp_id: string; origins: string[]; x_redirect_uri: string
-  secrets: Record<string, boolean>; wechat_cover: boolean; login_mode?: 'local' | 'access' | 'passkey'; access_emails?: string[]
+  secrets: Record<string, boolean>; wechat_cover: boolean; login_mode?: 'local' | 'access' | 'passkey' | 'password'; access_emails?: string[]
   x_account: { username?: string; name?: string; subscription_type?: string } | null
 }
 type Cred = { id: string; label: string; rp_id: string; created_at: number; last_used_at: number | null }
@@ -23,6 +25,7 @@ export function SettingsPage({ query, status }: { query: URLSearchParams; status
   const [creds, setCreds] = useState<Cred[]>([])
   const [wxSecret, setWxSecret] = useState('')
   const [wxAppId, setWxAppId] = useState('')
+  const [daituKey,setDaituKey]=useState('')
   const [author, setAuthor] = useState<string | null>(null)
   const [xKeys, setXKeys] = useState({ x_client_id: '', x_client_secret: '' })
   const [busy, setBusy] = useState('')
@@ -81,8 +84,10 @@ export function SettingsPage({ query, status }: { query: URLSearchParams; status
 
   return (
     <div className="page narrow">
-      <div className="page-head"><div><h1>设置</h1><p>发布渠道、本机能力和登录设备。所有凭证只存在这台电脑的私有目录里。</p></div></div>
+      <div className="page-head"><div><h1>设置</h1><p>{status?.storage?.mode==='cloud'?'发布渠道、模型接口和账号。内容与 API 凭据保存在你的私有云端。':'发布渠道、本机能力和登录设备。所有凭证只存在这台电脑的私有目录里。'}</p></div></div>
 
+      <ImageApiSettings/>
+      <AiRules/>
       <XiaoDConnection/>
       <section className="settings-group">
         <h2>发布渠道</h2>
@@ -204,13 +209,29 @@ export function SettingsPage({ query, status }: { query: URLSearchParams; status
           <div className="setting model-setting">
             <span className="ic"><Ic.Sparkle size={17} /></span>
             <div className="body">
-              <div className="t">提炼和起草</div>
-              <div className="d">{s.llm_backend === 'disabled' ? '文字 AI 已暂停。本机 Codex 只在正文配图入口处理图片，已有正文可继续手动编辑。' : s.llm_backend === 'codex-cli' ? '使用本机 Codex 的 ChatGPT 订阅额度，型号固定为 GPT-6.1 Sol。当前接入文字任务；额外图片与工具任务会明确提示，失败不转用 API。' : s.llm_backend === 'deepseek-api' ? '分类用 Flash，拆解与写作用 Pro；带截图的视频脚本用 Flash。内容发送至 DeepSeek 官方服务，调用失败时保留已有内容。' : s.llm_backend === 'model-api' ? '使用你已授权的本机模型连接器。文字及视频脚本所需截图发送至配置的服务；不会自动换型号。' : '使用本机 Claude Code 及其配置的模型服务。'}</div>
+              <div className="t">文章起草和改稿</div>
+              <div className="d">参考你选定的对标文章，并检索个人素材库中的相关内容。对标用于参考写法，个人经历保留来源与审核状态。</div>
+              <div className="inline-form">
+                <label htmlFor="writing-model">写稿模型</label>
+                <select id="writing-model" className="input" value={s.writing_model || ''} onChange={async e => {
+                  try { await api.put('/api/settings', { writing_model: e.target.value }); load() } catch (e) { toast((e as Error).message, 'error') }
+                }}><option value="">跟随通用设置</option><option value="claude-opus-5-5">DaiTuAI · Claude-Kiro · Claude Opus 5.5</option><option value="deepseek-v4-pro">DeepSeek V4 Pro · 官方 API</option></select>
+              </div>
+              {s.writing_model && <div className="d">{s.writing_model === 'deepseek-v4-pro' ? '使用服务端保存的 DeepSeek 官方 Key，按 DeepSeek API 计费。' : '使用已授权的 Claude 密钥，按代兔服务计费。'}起草前仍可单篇选择模型；失败时保留已有内容，不自动换模型。</div>}
+              {status?.storage?.mode==='cloud'&&<details style={{marginTop:10}}><summary>更新代兔 API 密钥 · {s.secrets.daitu_api_key?'已配置':'未配置'}</summary><div className="inline-form"><input type="password" className="input" aria-label="代兔 API Key" autoComplete="new-password" placeholder="填写新的 Key，保存后替换" value={daituKey} onChange={e=>setDaituKey(e.target.value)}/><button className="btn" disabled={!daituKey.trim()} onClick={()=>void saveSecrets({daitu_api_key:daituKey},'代兔密钥已更新').then(()=>setDaituKey(''))}>保存密钥</button></div></details>}
+            </div>
+            {s.writing_model && <div className="side-actions"><span className={`pill ${status?.llm.ok ? 'ok' : 'warn'}`}>{status?.llm.detail || '已指定写稿模型'}</span></div>}
+          </div>
+          <div className="setting model-setting">
+            <span className="ic"><Ic.Sparkle size={17} /></span>
+            <div className="body">
+              <div className="t">其他文字任务与通用设置</div>
+              <div className="d">{s.llm_backend === 'disabled' ? '其他文字任务已暂停。文章起草和改稿可使用上方单独指定的模型；本机 Codex 继续用于正文配图。' : s.llm_backend === 'codex-cli' ? '使用本机 Codex 的 ChatGPT 订阅额度，型号固定为 GPT-6.1 Sol。当前接入文字任务；额外图片与工具任务会明确提示，失败不转用 API。' : s.llm_backend === 'deepseek-api' ? '分类用 Flash，拆解与写作用 Pro；带截图的视频脚本用 Flash。内容发送至 DeepSeek 官方服务，调用失败时保留已有内容。' : s.llm_backend === 'model-api' ? '使用你已授权的本机模型连接器。文字及视频脚本所需截图发送至配置的服务；不会自动换型号。' : '使用本机 Claude Code 及其配置的模型服务。'}</div>
               <div className="inline-form">
                 <label htmlFor="model-backend">接入方式</label>
                 <select id="model-backend" className="input" value={s.llm_backend} onChange={async e => {
                   try { await api.put('/api/settings', { llm_backend: e.target.value }); load() } catch (e) { toast((e as Error).message, 'error') }
-                }}><option value="disabled">暂停文字 AI · Codex 仅配图</option><option value="codex-cli">Codex · ChatGPT 订阅（文字）</option><option value="deepseek-api">DeepSeek 官方 API</option><option value="model-api">已有 Claude 模型接口</option><option value="claude-code">原版 Claude Code</option></select>
+                }}><option value="disabled">暂停文字 AI · Codex 仅配图</option>{status?.storage?.mode!=='cloud'&&<option value="codex-cli">Codex · ChatGPT 订阅（文字）</option>}<option value="deepseek-api">DeepSeek 官方 API</option><option value="model-api">已有 Claude 模型接口</option>{status?.storage?.mode!=='cloud'&&<option value="claude-code">原版 Claude Code</option>}</select>
                 {s.llm_backend === 'model-api' && <><label htmlFor="model-name">写稿模型</label>
                   <select id="model-name" className="input" value={s.llm_model} onChange={async e => {
                     try { await api.put('/api/settings', { llm_model: e.target.value }); load() } catch (e) { toast((e as Error).message, 'error') }
@@ -218,7 +239,7 @@ export function SettingsPage({ query, status }: { query: URLSearchParams; status
               </div>
               {s.llm_backend === 'deepseek-api' && <DeepSeekSettings configured={!!s.secrets.deepseek_api_key} routes={s.deepseek_routes} onSaved={load} />}
             </div>
-            <div className="side-actions"><span className={`pill ${s.llm_backend === 'deepseek-api' ? s.secrets.deepseek_api_key ? 'ok' : 'warn' : status?.llm.ok ? 'ok' : 'warn'}`}>{s.llm_backend === 'deepseek-api' ? s.secrets.deepseek_api_key ? '密钥已配置' : '待填写 DeepSeek 密钥' : status?.llm.detail || '检查中'}</span></div>
+            <div className="side-actions"><span className={`pill ${s.llm_backend === 'disabled' ? 'warn' : s.llm_backend === 'deepseek-api' ? s.secrets.deepseek_api_key ? 'ok' : 'warn' : status?.llm.ok ? 'ok' : 'warn'}`}>{s.llm_backend === 'disabled' ? '已暂停' : s.llm_backend === 'deepseek-api' ? s.secrets.deepseek_api_key ? '密钥已配置' : '待填写 DeepSeek 密钥' : status?.llm.detail || '检查中'}</span></div>
           </div>
           <div className="setting">
             <span className="ic"><Ic.Mic size={17} /></span>
@@ -255,6 +276,8 @@ export function SettingsPage({ query, status }: { query: URLSearchParams; status
               </div>
             </div>
           </div>
+        ) : s.login_mode === 'password' ? (
+          <div className="card"><div className="setting"><span className="ic"><Ic.Key size={16}/></span><div className="body"><div className="t">同一账号，跨电脑使用</div><div className="d">在任意电脑打开 {s.origins[0].replace('https://','')}，使用同一工作台账号与密码登录。文章、图片和排版保存到同一份内容库。</div></div></div><div className="setting"><span className="ic"><Ic.Logout size={16}/></span><div className="body"><div className="t">退出登录</div><div className="d">只退出当前浏览器，云端内容保留。</div></div><button className="btn ghost sm danger" onClick={logout}>退出</button></div></div>
         ) : s.login_mode === 'access' ? (
           <div className="card">
             <div className="setting">

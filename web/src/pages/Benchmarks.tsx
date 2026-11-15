@@ -1,3 +1,4 @@
+import { MobilePending } from '../MobilePending'
 import { MethodCapture } from '../AssetLinks'
 import { VideoEvidence } from './VideoEvidence'
 import { ResearchControls, ResearchTrace, ResearchJudgment, useResearchChoice } from '../ResearchControls'
@@ -28,6 +29,7 @@ export function Benchmarks({ id, targetDraft, initialAnalysis }: { id?: number; 
   const [researchChoice,setResearchChoice]=useResearchChoice()
   const [kind, setKind] = useState('全部')
   const [sourcePlatform,setSourcePlatform]=useState('')
+  const [collectionChannel,setCollectionChannel]=useState('')
   const [authorFilter, setAuthorFilter] = useState('')
   const [archived, setArchived] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -44,7 +46,7 @@ export function Benchmarks({ id, targetDraft, initialAnalysis }: { id?: number; 
   const reader = useRef<HTMLDivElement>(null)
   const analyses = useRef<HTMLDivElement>(null)
   const workspace = usePaneContainer()
-  const libraryWidth = usePaneSize({ key: 'cw-pane-benchmark-library-v1', width: workspace.width, initial: 230, min: 180, max: 360, remaining: 700 })
+  const libraryWidth = usePaneSize({ key: 'cw-pane-benchmark-library-v1', width: workspace.width, initial: 230, min: 180, max: 760, remaining: id ? 660 : 380 })
   const reading = usePaneContainer(!!id)
   const analysisWidth = usePaneSize({ key: 'cw-pane-benchmark-analysis-v1', width: reading.width, initial: 390, min: 300, max: 650, remaining: 340 })
   const list = useCallback(() => api.get<BenchmarkSummary[]>(`/api/benchmarks?archived=${archived}`).then(setItems).catch(e => setError(e.message)), [archived])
@@ -68,6 +70,22 @@ export function Benchmarks({ id, targetDraft, initialAnalysis }: { id?: number; 
     return () => { alive = false }
   }, [id, version, list])
   const inProgress = !!source && ['queued', 'running'].includes(source.analysis_state)
+  async function organizeReading(withModel:boolean) {
+    if (!source?.media_id || busy) return
+    if (withModel && !window.confirm('本次按小D规则整理会使用工作台当前文字模型的 API 额度。保留原始转写和已有研究，继续吗？')) return
+    const bid=source.id,mid=source.media_id
+    setBusy(true)
+    try {
+      await api.post(`/api/media-imports/${mid}/${withModel?'prepare-reading':'paragraphs'}`,{body_hash:source.body_hash})
+      if (withModel) {
+        toast('已提交小D整理，完成后回到这条对标','info')
+        window.location.hash=`/imports/${mid}`
+      } else {
+        setSource(await api.get<Benchmark>(`/api/benchmarks/${bid}`));setActive('')
+        toast('已按原话分段，原始转写保留')
+      }
+    } catch(e) { toast((e as Error).message,'error') } finally { setBusy(false) }
+  }
   async function analyze(currentOnly: boolean) {
     if (!id || !source || busy) return
     setBusy(true)
@@ -141,12 +159,12 @@ export function Benchmarks({ id, targetDraft, initialAnalysis }: { id?: number; 
   function onReview(review: BenchmarkReview) { setSource(s => s?.analysis?.id === review.analysis_id ? { ...s, reviews: [...s.reviews.filter(r => r.paragraph_key !== review.paragraph_key), review] } : s) }
   const needle = q.trim().toLowerCase()
   const authors = [...new Set(items.map(item => item.author).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-CN'))
-  const shown = items.filter(item => (!sourcePlatform || item.source_platform===sourcePlatform) && (!authorFilter || item.author === authorFilter) && (kind === '全部' || item.kind === kind) && (!needle || `${item.title} ${item.author} ${item.tags.join(' ')}`.toLowerCase().includes(needle)))
+  const shown = items.filter(item => (!sourcePlatform || item.source_platform===sourcePlatform) && (!collectionChannel || item.collection_channel===collectionChannel) && (!authorFilter || item.author === authorFilter) && (kind === '全部' || item.kind === kind) && (!needle || `${item.title} ${item.author} ${item.tags.join(' ')} ${item.mobile_note_preview || ''}`.toLowerCase().includes(needle)))
   return <div className={'benchmark-page'+(id&&!libraryOpen?' catalog-collapsed':'')} ref={workspace.ref} style={{ '--benchmark-library': `${libraryWidth.size}px`, '--benchmark-analysis': `${analysisWidth.size}px` } as CSSProperties}>
     <header className="benchmark-top">
       {id && <button className="btn ghost sm benchmark-back" onClick={() => go(`benchmarks${targetDraft ? `?draft=${targetDraft}` : ''}`)}><Ic.Back size={15} />列表</button>}
       <button className="btn sm" aria-expanded={libraryOpen} onClick={()=>setLibraryOpen(v=>!v)}>☰ 对标目录</button><h1>对标库</h1><span className="small muted">原文、拆解与我的判断</span>
-      <div className="right row wrap"><button className="btn" onClick={() => go('imports')}><Ic.Plus size={15} />批量导入</button>
+      <div className="right row wrap"><MobilePending/><button className="btn" onClick={() => go('imports')}><Ic.Plus size={15} />批量导入</button>
         {source && <button className="btn primary" disabled={busy} onClick={() => write()}>{targetDraft ? '关联到当前稿件' : '对照仿写'}</button>}</div>
     </header>
     <div className={'benchmark-body' + (id ? ' has-selection' : '')}>
@@ -156,16 +174,23 @@ export function Benchmarks({ id, targetDraft, initialAnalysis }: { id?: number; 
           <div className="row wrap"><select className="select" aria-label="对标类型" value={kind} onChange={e => setKind(e.target.value)}>{['全部', '未分类', '教程', '案例', '观点', '故事', '清单', '其他'].map(v => <option key={v}>{v}</option>)}</select>
             <button className="btn ghost sm" aria-pressed={archived} onClick={() => { setArchived(!archived); setAuthorFilter('') }}>{archived ? '查看收藏' : '归档'}</button></div>
           <select className="select" aria-label="筛选来源平台" value={sourcePlatform} onChange={e=>setSourcePlatform(e.target.value)}><option value="">全部来源平台</option>{[...new Set(items.map(i=>i.source_platform).filter(Boolean))].map(p=><option key={p}>{p}</option>)}</select>
+          {items.some(item=>item.mobile) && <select className="select" aria-label="筛选收集方式" value={collectionChannel} onChange={e=>setCollectionChannel(e.target.value)}><option value="">全部收集方式</option><option>飞书群转发</option></select>}
           <select className="select" aria-label="筛选作者或账号" value={authorFilter} onChange={e => setAuthorFilter(e.target.value)}><option value="">全部作者/账号</option>{authors.map(author => <option key={author}>{author}</option>)}</select></div>
         <div className="benchmark-library-items">{shown.map(item => <button key={item.id} className={'benchmark-list-item' + (id === item.id ? ' selected' : '')} onClick={() => { setActive(''); go(`benchmarks/${item.id}${targetDraft ? `?draft=${targetDraft}` : ''}`) }}>
-          <strong>{item.title}</strong>{item.source_platform && <span className="small muted">来源：{item.source_platform}{item.source_kind?` · ${item.source_kind}`:''}</span>}<span className="small muted">{item.author || '作者待补充'}</span><span className="row wrap"><span className="badge">{item.kind}</span><span className="small muted">{item.current_analysis_id ? '已有拆解' : '待拆解'}</span></span>
-          <ReadingMeta source={item}/><TagChips tags={item.tags} />
+          <strong>{item.title}</strong><time className="badge" dateTime={new Date(item.created_at*1000).toISOString()}>导入时间：{new Date(item.created_at*1000).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false})}</time>{item.source_platform && <span className="small muted">来源：{item.source_platform}{item.source_kind?` · ${item.source_kind}`:''}</span>}<span className="small muted">{item.author || '作者待补充'}</span><span className="row wrap"><span className="badge">{item.kind}</span><span className="small muted">{item.current_analysis_id ? '已有拆解' : '待拆解'}</span></span>
+          {item.media_state&&<span className="small muted">正文提取：{({queued:'等待提取',running:'提取中',done:'已提取（待核对）',failed:'提取失败'} as Record<string,string>)[item.media_state]||item.media_state}{item.media_error?' · '+item.media_error:''}</span>}<ReadingMeta source={item}/><TagChips tags={item.tags} />
+          {!!item.mobile_note_count && <span className="benchmark-note-preview"><strong>我的判断{item.mobile_note_count! > 1 ? ` · ${item.mobile_note_count} 条` : ''}</strong><span>{item.mobile_note_preview}</span></span>}
         </button>)}{!shown.length && <div className="benchmark-list-empty muted small">{items.length ? '没有符合条件的对标' : '收藏文章链接或粘贴正文，先保留值得研究的原文。'}</div>}</div>
       </aside>
       <div className="benchmark-detail" ref={reading.ref}>
         {!source ? <div className="benchmark-empty"><Empty icon={<Ic.Doc />} title={loading ? '正在读取对标…' : '从一篇原文开始'}>{error || '先在左侧选择原文，再逐段研究它的写法。'}</Empty><button className="btn primary" onClick={() => setAdding(true)}>收藏第一篇对标</button></div> : <>
-          <main className="benchmark-original"><div className="benchmark-column-head"><h2>{source.media_id?(source.extraction_only?'原始转写':'来源整理稿'):'原文'}</h2><div className="row wrap"><button className="btn ghost sm" onClick={() => { setMetaAuthor(source.author); setMetaKind(source.kind); setMetaTags(source.tags.join('，')); setEditing(true) }}>分类与作者</button><button className="btn ghost sm" onClick={archive}>{source.archived ? '恢复收藏' : '归档'}</button></div></div>
-            {source.media_id&&<VideoEvidence key={source.id} bid={source.id}/>}<BenchmarkReader source={source} active={active} onSelect={key => select(key, 'reader')} root={reader} />
+          <main className="benchmark-original"><div className="benchmark-column-head"><h2>{!source.media_id?'原文':source.reading_kind==='reviewed-copy'?'校读稿':source.reading_kind==='paragraphs'?'转写分段稿':source.extraction_only?'原始转写':'来源整理稿'}</h2><div className="row wrap"><button className="btn ghost sm" onClick={() => { setMetaAuthor(source.author); setMetaKind(source.kind); setMetaTags(source.tags.join('，')); setEditing(true) }}>分类与作者</button><button className="btn ghost sm" onClick={archive}>{source.archived ? '恢复收藏' : '归档'}</button></div></div>
+            {source.mobile && !!source.media_id && source.media_state==='done' && !!source.extraction_only && !version && <div className="callout small">
+              <p>{source.reading_kind==='reviewed-copy'?'已按原视频校读并保留原转写。疑点仍需回看。':source.reading_kind==='paragraphs'?'已分段，尚未校正转写错词。':'这份文字是机器转写，尚未分段或校读。'}</p>
+              <div className="row wrap">{!source.reading_kind&&<button className="btn sm" disabled={busy||inProgress} onClick={()=>void organizeReading(false)}>按原话分段（免费）</button>}
+                <button className="btn sm" disabled={busy||inProgress} onClick={()=>void organizeReading(true)}>按小D规则整理</button></div>
+            </div>}
+            {source.media_state&&source.media_state!=='done'&&<div className="callout"><span>{source.reading_kind==='paragraphs'?(source.media_state==='failed'?'小D整理未完成，当前显示转写分段稿':'转写已完成，正在按小D规则整理'):'正文提取：'+(source.media_state==='failed'?'失败':source.media_state==='running'?'处理中':'等待处理')}{source.media_error?' · '+source.media_error:''}。原始链接和个人评价保留。</span>{source.media_state==='failed'&&source.media_id&&<> <a href={`#/imports/${source.media_id}`}>查看详情或重试</a></>}</div>}{source.media_id&&<VideoEvidence key={source.id} bid={source.id}/>}<BenchmarkReader source={source} active={active} onSelect={key => select(key, 'reader')} root={reader} />
           </main>
           <aside className="benchmark-analysis" id="benchmark-analysis" ref={analyses}>
             <PaneResizer label="逐段拆解宽度" controls="benchmark-analysis" edge="start" pane={analysisWidth} />

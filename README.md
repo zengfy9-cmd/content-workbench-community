@@ -18,7 +18,8 @@
 | 整理选题 | 将材料和观点组织成选题，保留引用来源 |
 | 写作与修改 | 编辑正文、添加批注、管理版本，按需连接 AI 辅助起草 |
 | 制作配图 | 从正文生成编号预览，选定后制作单张图片；支持自带角色参考 |
-| 排版与归档 | 五款内置通用配色、正文预览，保存文章与配图 |
+| 排版与归档 | 五款内置通用配色、正文预览、批注直达与独立成稿箱 |
+| 中控 | 查素材原话、今日任务和待挑选题；可粘贴截图给已配置的本机 Codex |
 | 平台连接 | 按需配置公众号、X、小红书等平台入口 |
 
 **本机存储，按需接入。** 基础素材、稿件和图片管理无需模型密钥。AI 写作、配图、语音转写与平台连接分别配置；可用能力和费用取决于你选择的服务及账号。新安装默认关闭文字模型与飞书自动同步。
@@ -29,7 +30,7 @@
 
 ### 方式一：交给你常用的 Agent
 
-[下载 v1.0.3 ZIP](https://github.com/zengfy9-cmd/content-workbench-community/releases/download/v1.0.3/content-workbench-community-v1.0.3.zip)，解压到独立目录，再用支持本机文件读写与终端执行的 Agent 打开它。
+[下载 v1.1.0 ZIP](https://github.com/zengfy9-cmd/content-workbench-community/releases/download/v1.1.0/content-workbench-community-v1.1.0.zip)，解压到独立目录，再用支持本机文件读写与终端执行的 Agent 打开它。
 
 | 工具 | 从哪里开始 |
 |---|---|
@@ -67,7 +68,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\install-windows.ps1
 
 安装完成后访问 **http://localhost:8765**。详细依赖、数据目录和端口说明见下方。
 
-> v1.0.3 的 Windows ZIP 安装流程已完成云端验收（331 项测试通过），包含保存、重启读回与页面加载。[运行记录](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41996804021) · [验收范围](docs/CLOUD_VALIDATION.md)。其他 Agent 入口共用安装脚本，未逐一进行客户端实机验收。
+> 新版安装与测试结果见 [GitHub Actions](https://github.com/zengfy9-cmd/content-workbench-community/actions/workflows/windows-install.yml)。WorkBuddy 等 Agent 复用同一安装脚本。
 
 ## 第一次使用
 
@@ -114,4 +115,4 @@ npm.cmd run build
 
 本项目采用 [MIT License](LICENSE)。
 
-本次 v1.0.3 修复段末斜杠、手动对齐被主题覆盖，并新增可复制的提示词块。使用方式见 [排版与提示词](docs/EDITOR_LAYOUT.md)。本版本的独立 Windows 云端验收已通过，运行记录见上方。
+v1.1.0 新增独立成稿箱、中控截图、待处理批注定位和可复制的创作任务交接。成稿箱只保存明确确认的版本，不会自动发布。截图问答使用你自己登录的本机 Codex；本地 Skill 交接需要你自行安装对应技能。排版与提示词块继续参考 [使用说明](docs/EDITOR_LAYOUT.md)。

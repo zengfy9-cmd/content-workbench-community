@@ -87,7 +87,7 @@ def test_transcription_result_preserves_word_timestamps(monkeypatch, tmp_path):
     word = SimpleNamespace(word='你好', start=0.0, end=0.5)
     segment = SimpleNamespace(text='你好', start=0.0, end=0.5, words=[word])
     monkeypatch.setattr(transcription, 'backend', lambda: 'faster_whisper')
-    monkeypatch.setattr(transcription, '_model', lambda: SimpleNamespace(transcribe=lambda *a, **k: (iter([segment]), None)))
+    monkeypatch.setattr(transcription, '_model', lambda: SimpleNamespace(transcribe=lambda *a, **k: (iter([segment]), SimpleNamespace(duration=.5,duration_after_vad=.5))))
     result = transcription.transcribe(tmp_path / 'audio.wav', '口述', True)
     assert result['text'] == '你好'
     assert result['segments'][0]['words'][0]['end'] == 0.5

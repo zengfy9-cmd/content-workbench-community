@@ -42,6 +42,7 @@ export type Material = {
   length?: number; status: string; error: string | null; created_at: number; idea_count?: number
 }
 export type Idea = {
+  group_ids?:number[]; groups?:ContentGroup[]
   method_ids?:number[]
   sources_selected?:number;image_ids?:number[];audience?:string;problem?:string;thesis?:string;available_materials?:string;missing_materials?:string;readiness?:string;material_ids?:number[];benchmark_ids?:number[]
   media_id?:number|null
@@ -107,7 +108,7 @@ export type XhsState = { title?: string; body?: string; tags?: string[]; cover?:
   card_images?: number[]; extra_images?: number[]; generating?: boolean; error?: string | null; generated_at?: number }
 export type CommentMsg = { id: number; author: 'gary' | 'ai'; body: string; created_at: number }
 export type Thread = CommentMsg & { draft_id: number; quote: string | null; prefix: string | null; suffix: string | null
-  status: 'open' | 'resolved'; replies: CommentMsg[] }
+  status: 'open' | 'resolved'; draft_record?: boolean; replies: CommentMsg[] }
 export type RevisionInfo = { before: number; after: number; summary: string; at: number; threads: number; answered: number }
 export type DiffBlock = { op: 'same' | 'del' | 'ins'; text: string } | { op: 'change'; parts: { op: 'same' | 'del' | 'ins'; text: string }[] }
 export type CaseItem = { title: string; author?: string; url?: string; summary?: string; fit?: string; public?: string }
@@ -117,8 +118,9 @@ export type Publication = {
   detail: string; created_at: number; title?: string
 }
 export type Status = {
+  storage?:{mode:string;url:string}
   llm: { ok: boolean; detail: string }; transcription: boolean; x_connected: boolean; x_media: boolean; zsxq_connected: boolean
-  zsxq_group?: string; case_search?: boolean; author?: string; workspace_label?: string
+  zsxq_group?: string; case_search?: boolean; author?: string; workspace_label?: string; workbench_name?: string
   wechat_configured: boolean; wechat_cover: boolean
   counts: { materials: number; ideas_new: number; drafts: number }; jobs_active: number
 }

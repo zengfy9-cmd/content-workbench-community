@@ -43,8 +43,11 @@ class Settings:
     rp_id: str = "localhost"
     origins: list[str] = field(default_factory=lambda: [f"http://localhost:{DEFAULT_PORT}"])
     allowed_hosts: list[str] = field(default_factory=lambda: [f"localhost:{DEFAULT_PORT}", f"127.0.0.1:{DEFAULT_PORT}"])
-    author: str = ""                    # byline, e.g. "Gary曹淦"
+    author: str = ""                    # Optional byline
     workspace_label: str = ""
+    workbench_name: str = "个人内容工作台"
+    # Optional local account presentation. Personal text/card stays in private data.
+    wechat_branding: dict = field(default_factory=dict)
     session_days: int = 30
     # Who the drafts are written for. Keys: name, identity, speaker_hint,
     # table_rule, manual_title, x_style, domain (see prompts.persona for defaults).
@@ -66,10 +69,13 @@ class Settings:
     claude_token_file: str = ""
     # claude-code / model-api keep their original model selection. deepseek-api
     # uses explicit task routes; its key is only stored in SecretStore.
-    llm_backend: str = "claude-code"
+    llm_backend: str = "disabled"
     codex_cli_path: str = ""           # Optional private, pinned official CLI JS/native entry.
     codex_model: str = "gpt-6.1-sol"
+    image_api_base: str = 'https://api.daitu.cc/v1'
+    image_api_model: str = 'gpt-image-2'
     llm_model: str = "sonnet"
+    writing_model: str = ""  # Optional exact DaiTu model for user-triggered writing only.
     model_connector_path: str = ""
     # Background Feishu writes are opt-in on a newly adapted installation.
     feishu_auto_sync: bool = False
@@ -90,9 +96,12 @@ class Settings:
     access_aud: str = ""
     access_emails: list[str] = field(default_factory=list)
     # "passkey": Access, then a passkey session. "access": the Cloudflare Access
-    # email code is the login (the author's choice 2026-10-14, so new devices need no
+    # email code can be used on new devices (it needs no
     # passkey); only takes effect when Access is configured.
     login_mode: str = "passkey"
+    # Cloud instances own the data; a migrated local instance only opens this URL.
+    storage_mode: str = "local"
+    cloud_url: str = ""
 
     @property
     def local_login(self) -> bool:

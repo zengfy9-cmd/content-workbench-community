@@ -8,6 +8,29 @@ from content_workbench.wechat_layout import THEME_IDS, _Fragment
 
 
 @pytest.mark.parametrize('theme', ('', *THEME_IDS))
+def test_bold_with_edge_spaces_renders_without_visible_delimiters(theme):
+    body = '**选题 **：说明文字。\n\n** 前后空格 **\n\n== 高亮 ==\n\n\\*\\*字面星号 \\*\\*'
+    output = wechat_html(body, theme)
+    root = _Fragment(output).root
+    bold = [''.join(node.itertext()) for node in root.iter('strong')]
+    assert '选题' in bold and '前后空格' in bold
+    assert '**选题 **' not in output
+    assert '**字面星号 **' in ''.join(root.itertext())
+    assert '高亮' in ''.join(root.itertext())
+    normalized = normalize_emphasis(body)
+    assert '**选题** ：说明文字。' in normalized
+    assert normalize_emphasis(normalized) == normalized
+
+
+def test_prompt_and_inline_code_with_bold_examples_remain_literal():
+    body = '```prompt\n**选题 **\n```\n\n`**选题 **`\n'
+    assert normalize_emphasis(body) == body
+    root = _Fragment(wechat_html(body)).root
+    assert not list(root.iter('strong'))
+    assert ''.join(next(root.iter('pre')).itertext()) == '**选题 **\n'
+
+
+@pytest.mark.parametrize('theme', ('', *THEME_IDS))
 def test_manual_alignment_survives_all_themes(theme):
     output = wechat_html('正文。\n\n:::center\n我是测试署名\n\n**测试结尾**\n:::\n\n:::left\n明确左对齐。\n:::\n', theme)
     nodes = list(_Fragment(output).root.iter())
@@ -45,3 +68,14 @@ def test_legacy_single_terminal_break_and_real_terminal_backslashes():
     assert 'C:\\原始路径\\' in plain
     assert '字面反斜杠\\' in plain
     assert '代码\\' in plain
+
+@pytest.mark.parametrize('theme', ('', *THEME_IDS))
+def test_small_blue_footer_does_not_change_regular_paragraph(theme):
+    output = wechat_html('正文。\n\n:::center small-blue\n点赞\n:::\n', theme)
+    nodes = list(_Fragment(output).root.iter())
+    small = next(n for n in nodes if n.text == '点赞')
+    plain = next(n for n in nodes if n.text == '正文。')
+    style = small.get('style', '')
+    assert 'font-size:12px' in style and 'color:#1677ff' in style and 'text-align:center' in style
+    assert '#1677ff' not in plain.get('style', '')
+    assert ':::center' not in output

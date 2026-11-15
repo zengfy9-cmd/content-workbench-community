@@ -1,11 +1,54 @@
 import { PlatformFilter, PLATFORMS, type ContentPlatform } from '../platforms'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api, type ContentGroup, type Draft } from '../api'
 import { ContentActions, GroupFilter } from '../ContentOrganization'
 import { go } from '../App'
-import { ago, Empty, PlatformIcon, usePoll, useToast } from '../ui'
+import { ago, Dialog, Empty, PlatformIcon, usePoll, useToast } from '../ui'
 import * as Ic from '../icons'
 import { ScheduleDraft, type Plan } from './WritingPlans'
+
+type FinalRow = { draft_id: number; platform: ContentPlatform; title: string; preview: string; saved_at: number }
+type FinalCopy = Omit<FinalRow, 'preview'> & { body: string; has_original: boolean }
+
+export function FinalCopies({ id }: { id?: number }) {
+  const toast = useToast()
+  const [rows, setRows] = useState<FinalRow[] | null>(null)
+  const [platform, setPlatform] = useState<ContentPlatform | 'all'>('all')
+  const [query, setQuery] = useState('')
+  const [active, setActive] = useState<FinalCopy | null>(null)
+  const [error, setError] = useState('')
+  const load = () => api.get<FinalRow[]>(`/api/final-drafts?${new URLSearchParams({
+    q: query.trim(), platform: platform === 'all' ? '' : platform,
+  })}`).then(r => { setRows(r); setError('') }).catch(e => setError(e.message))
+  usePoll(load, 6000, [platform, query])
+  useEffect(() => {
+    if (!id) return
+    let current = true
+    api.get<FinalCopy>(`/api/final-drafts/${id}`).then(copy=>{if(current)setActive(copy)})
+      .catch(e=>{if(current)toast(e.message,'error')})
+    return ()=>{current=false}
+  },[id,toast])
+  return <div className="page narrow">
+    <div className="page-head"><div><h1>成稿箱</h1><p>这里是已确认的文案。后续改动原稿，须再次确认才会更新这里的版本。</p></div><a className="btn" href="#/drafts">返回稿件</a></div>
+    <div className="row wrap" style={{marginBottom:14}}>
+      <label>平台 <select className="select" value={platform} onChange={e=>setPlatform(e.target.value as ContentPlatform|'all')}>
+        <option value="all">全部</option>{Object.entries(PLATFORMS).map(([key,label])=><option key={key} value={key}>{label}</option>)}
+      </select></label>
+      <input className="input grow" aria-label="搜索成稿标题" placeholder="搜索成稿标题" maxLength={300} value={query} onChange={e => setQuery(e.target.value)} />
+    </div>
+    {error && <p role="alert" className="callout">{error}</p>}
+    {rows === null ? <p className="muted">正在读取成稿…</p> : rows.length === 0 ? <div className="card"><Empty icon={<Ic.Doc />} title={query.trim()?'没有匹配的成稿':'还没有成稿'}>在写完的稿件里点「确认正文，存入成稿箱」。</Empty></div>
+      : <div className="card list-rows">{rows.map(row => <div key={row.draft_id} className="list-row row wrap">
+          <span className="pill">{PLATFORMS[row.platform]}</span>
+          <div className="grow"><a href={`#/final-drafts/${row.draft_id}`}>{row.title || '（还没有标题）'}</a><div className="sub">{row.preview}</div></div>
+          <span className="when">{ago(row.saved_at)}</span>
+        </div>)}</div>}
+    {active && <Dialog open wide title={active.title || '成稿正文'} onClose={()=>{setActive(null);go('final-drafts')}} footer={<>
+      {active.has_original ? <a className="btn" href={`#/drafts/${active.draft_id}`}>打开原稿</a> : null}
+      <button className="btn primary" onClick={async()=>{try{await navigator.clipboard.writeText(active.body);toast('已复制成稿正文')}catch{toast('未能复制，可以选中文案手动复制','error')}}}>复制已确认正文</button>
+    </>}><div className="final-copy-body">{active.body}</div></Dialog>}
+  </div>
+}
 
 export function Drafts() {
   const toast = useToast()

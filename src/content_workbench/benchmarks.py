@@ -83,19 +83,48 @@ def migrate_references(conn) -> None:
         import_reference(conn, row[0])
 
 
+def source_platform(item: dict) -> str:
+    """Identify the original publisher independently of the collection channel."""
+    if item.get('source_platform') and item['source_platform'] != '手机收藏':
+        return item['source_platform']
+    from .media_imports import HOSTS
+    host = (urlsplit(item.get('url') or '').hostname or '').lower()
+    platforms = {**HOSTS, 'scys.com': '生财', 'feishu.cn': '飞书', 'larksuite.com': '飞书'}
+    for domain, label in platforms.items():
+        if host == domain or host.endswith('.' + domain):
+            return label
+    return '网页' if host else '原平台待确认'
+
+
+def collection_summaries() -> dict:
+    summaries = {}
+    for row in db.rows("SELECT bid,substr(note,1,240) AS note FROM mobile_captures ORDER BY rowid"):
+        info = summaries.setdefault(row['bid'], {'mobile': True, 'collection_channel': '飞书群转发',
+                                                  'mobile_note_count': 0, 'mobile_note_preview': ''})
+        if row['note'].strip():
+            info['mobile_note_count'] += 1
+            info['mobile_note_preview'] = row['note']
+    return summaries
+
+
 def require(bid: int) -> dict:
     found = db.row("SELECT * FROM benchmarks WHERE id=?", (bid,))
     if not found:
         raise HTTPException(404, "对标不存在")
     found["tags"] = db.loads(found["tags"], [])
     if found.get('media_id'):
-        media=db.row('SELECT source_platform,source_kind,target_platforms,extraction_only FROM media_imports WHERE id=?',(found['media_id'],))
+        media=db.row('SELECT source_platform,source_kind,target_platforms,extraction_only,reading_kind,state AS media_state,error AS media_error FROM media_imports WHERE id=?',(found['media_id'],))
         if media:found.update(media);found['target_platforms']=db.loads(found['target_platforms'],[])
+    found['source_platform'] = source_platform(found)
+    found.update(collection_summaries().get(bid, {}))
+    if found.get('mobile'):
+        found['tags'] = [tag for tag in found['tags'] if tag != '手机收藏']
     return found
 
 
 def bundle(bid: int, analysis_id: int | None = None) -> dict:
     found = require(bid)
+    found["mobile_notes"] = db.rows("SELECT note,stamp FROM mobile_captures WHERE bid=? AND note!='' ORDER BY stamp,rowid",(bid,))
     selected = analysis_id or found.get("current_analysis_id")
     analysis = db.row("SELECT * FROM benchmark_analyses WHERE id=? AND benchmark_id=?", (selected, bid)) if selected else None
     if analysis_id and not analysis:
@@ -134,7 +163,8 @@ def save_source_metadata(bid, article):
     count = article.get('read_count')
     if count is not None and (type(count) is not int or count < 0 or count > 10000000000):
         raise HTTPException(400, '阅读量必须是有效数字')
-    html = references.safe_original(str(article.get('original_html') or ''), article.get('url',''))
+    raw_html = str(article.get('original_html') or '').strip()
+    html = references.safe_original(raw_html, article.get('url','')) if raw_html else ''
     with db.tx() as c:
         if html:
             c.execute("UPDATE benchmarks SET original_html=? WHERE id=? AND original_html=''", (html,bid))
@@ -185,14 +215,17 @@ def _fields(body: dict, old: dict | None = None) -> dict:
 
 @router.get("/api/benchmarks")
 def list_benchmarks(archived: bool = False):
-    rows = db.rows("SELECT id,media_id,title,url,author,kind,tags,read_count,read_count_at,archived,analysis_state,analysis_error,current_analysis_id,created_at,updated_at,substr(body,1,100) AS preview FROM benchmarks WHERE archived=? ORDER BY updated_at DESC,id DESC", (int(archived),))
+    rows = db.rows("SELECT id,media_id,title,url,author,kind,tags,read_count,read_count_at,read_count_error,read_count_source,read_count_checked_at,like_count,like_count_at,like_count_source,archived,analysis_state,analysis_error,current_analysis_id,created_at,updated_at,substr(body,1,100) AS preview FROM benchmarks WHERE archived=? ORDER BY updated_at DESC,id DESC", (int(archived),))
+    mobile = collection_summaries()
     for item in rows:
+        item.update(mobile.get(item['id'], {}))
         item["tags"] = db.loads(item["tags"], [])
+        if item.get('mobile'):
+            item['tags'] = [tag for tag in item['tags'] if tag != '手机收藏']
         if item.get('media_id'):
-            media=db.row('SELECT source_platform,source_kind,target_platforms,extraction_only FROM media_imports WHERE id=?',(item['media_id'],))
+            media=db.row('SELECT source_platform,source_kind,target_platforms,extraction_only,reading_kind,state AS media_state,error AS media_error FROM media_imports WHERE id=?',(item['media_id'],))
             if media:item.update(media);item['target_platforms']=db.loads(item['target_platforms'],[])
-        if not item.get('source_platform'):
-            item['source_platform']='公众号' if 'mp.weixin.qq.com/' in item['url'] else '生财' if 'scys.com/' in item['url'] else '其他'
+        item['source_platform'] = source_platform(item)
     return rows
 
 
@@ -243,6 +276,15 @@ def get_benchmark(bid: int, analysis_id: int | None = None):
 @router.put("/api/benchmarks/{bid}")
 def edit_benchmark(bid: int, body: dict = Body(...)):
     old = require(bid)
+    if 'like_count' in body:
+        count=body['like_count']
+        if source_platform({'url':old['url']})!='抖音' or len(body)!=1 or type(count) is not int or not 0<=count<=10_000_000_000:
+            raise HTTPException(400,'请单独提交有效的抖音点赞数')
+        with db.tx() as conn:
+            updated=conn.execute("UPDATE benchmarks SET like_count=?,like_count_at=?,like_count_source='手动补录' WHERE id=? AND url=?",
+                                 (count,db.now(),bid,old['url']))
+            if not updated.rowcount:raise HTTPException(409,'来源已经修改，请刷新')
+        return bundle(bid)
     if "read_count" in body:
         save_source_metadata(bid, {"read_count": body["read_count"]})
     values = _fields(body, old)
@@ -252,6 +294,8 @@ def edit_benchmark(bid: int, body: dict = Body(...)):
     with db.tx() as conn:
         conn.execute("UPDATE benchmarks SET title=?,url=?,body=?,body_hash=?,author=?,kind=?,tags=?,archived=?,updated_at=? WHERE id=?",
                      (values["title"], values["url"], values["body"], body_hash(values["body"]), values["author"], values["kind"], db.dumps(values["tags"]), int(body.get("archived", old["archived"])), db.now(), bid))
+        if values['url']!=old['url']:
+            conn.execute("UPDATE benchmarks SET like_count=NULL,like_count_at=NULL,like_count_source='' WHERE id=?",(bid,))
         if changed:
             conn.execute("UPDATE benchmarks SET analysis_state='idle',analysis_error=NULL,pending_job_id=NULL,analysis_progress='' WHERE id=?", (bid,))
     return bundle(bid)

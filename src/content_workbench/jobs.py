@@ -42,6 +42,14 @@ def start(settings: Settings) -> None:
     if _started:
         return
     _started = True
+    from . import model_fallbacks
+    model_fallbacks.stop_interrupted()
+    from . import control_center
+    control_center.stop_interrupted()
+    for job in db.rows("SELECT * FROM jobs WHERE state IN ('queued','running') AND kind IN ('control_chat','derive_draft')"):
+        error=RuntimeError('服务重启中断任务；未自动重复调用，请检查已有结果后再操作')
+        _set(job['id'],'failed',str(error))
+        _mark_failure(job['kind'],json.loads(job['payload']),error)
     if settings.llm_backend == 'codex-cli':
         # Do not silently spend subscription allowance by replaying interrupted inference.
         for job in db.rows("SELECT * FROM jobs WHERE state='running'"):
@@ -96,6 +104,8 @@ def _loop(settings: Settings, allow_heavy: bool = True) -> None:
 
 
 def _mark_failure(kind: str, payload: dict, exc: Exception) -> None:
+    from . import model_fallbacks
+    model_fallbacks.record(kind, payload, exc)
     if kind in ('intake_item','intake_media'):
         from . import intake_batches
         intake_batches.failed(payload,exc)
@@ -115,7 +125,7 @@ def _mark_failure(kind: str, payload: dict, exc: Exception) -> None:
             conn.execute("UPDATE materials SET status='failed', error=? WHERE id=?", (str(exc)[:500], payload["material_id"]))
         elif kind == "extract":
             conn.execute("UPDATE materials SET error=? WHERE id=?", (f"提炼失败：{exc}"[:500], payload["material_id"]))
-        elif kind in ("draft", "media_draft"):
+        elif kind in ("draft", "media_draft", "derive_draft"):
             conn.execute("UPDATE drafts SET status='failed', error=? WHERE id=?", (str(exc)[:500], payload["draft_id"]))
         elif kind == "cases":
             conn.execute("UPDATE case_searches SET state='failed', error=? WHERE id=?", (str(exc)[:500], payload["search_id"]))
@@ -141,6 +151,12 @@ def _mark_failure(kind: str, payload: dict, exc: Exception) -> None:
 
 
 def run_job(settings: Settings, kind: str, payload: dict) -> None:
+    if kind=="control_chat":
+        from . import control_center
+        return control_center.run(payload["turn_id"])
+    if kind=="derive_draft":
+        from . import draft_workflow
+        return draft_workflow.derive_job(payload["draft_id"])
     if kind=='video_research':
         from . import video_research
         return video_research.run(payload)
@@ -251,6 +267,34 @@ def _extract(settings: Settings, payload: dict) -> None:
         conn.execute("UPDATE materials SET error=NULL WHERE id=?", (material["id"],))
 
 
+def _draft_result(reply: str, draft_id: int) -> dict:
+    try:
+        result = llm.extract_json(reply)
+        if isinstance(result, dict):
+            if result.get('notes') is None:
+                result['notes'] = ''
+            if result.get('comments') is None:
+                result['comments'] = []
+            if result.get('sources') is None:
+                result['sources'] = []
+        if (not isinstance(result, dict) or any(not isinstance(result.get(k), str) or not result[k].strip() for k in ('title','body'))
+                or not isinstance(result.get('notes', ''), str)
+                or not isinstance(result.get('comments', []), list)):
+            raise ValueError('模型没有返回完整的标题、正文和稿件字段；原有内容保持不变')
+        return result
+    except ValueError:
+        # Keep the already redacted model output locally for diagnosis/recovery;
+        # never expose article text, provider bodies or credentials in the UI.
+        from .config import _write_private
+        folder = data_dir() / 'failed-draft-replies'
+        try:
+            folder.mkdir(exist_ok=True)
+            _write_private(folder / f'{draft_id}.txt', reply)
+        except OSError:
+            pass
+        raise
+
+
 def _draft(settings: Settings, payload: dict) -> None:
     draft = db.row("SELECT * FROM drafts WHERE id=?", (payload["draft_id"],))
     idea = db.row("SELECT * FROM ideas WHERE id=?", (draft["idea_id"],))
@@ -258,24 +302,41 @@ def _draft(settings: Settings, payload: dict) -> None:
     quotes = db.loads(idea["quotes"], [])
     tools = llm.SCYS_TOOLS if prompts.case_search_on(settings) else None
     context = db.loads(draft.get('writing_context'), None)
+    if not context:
+        from .idea_cards import snapshot
+        context = snapshot(idea["id"], {}, settings)
     if context:
+        from . import writing_sources
+        writing_sources.attach(context)
         from .idea_cards import context_prompt
         prompt = context_prompt(context, draft['platform'])
         tools = None  # Explicitly selected writing inputs; no automatic external case lookup.
     else:
         prompt = prompts.build_draft(settings, draft['platform'], idea, material, quotes)
-    from . import recording_memory
-    memory_query = str((context or {}).get("title") or idea.get("title") or "") + " " + str(idea.get("angle") or "")
-    memories = recording_memory.search(memory_query)
-    if memories:
-        prompt += recording_memory.prompt(memories)
+        from . import ai_rules
+        prompt = ai_rules.apply(prompt,ai_rules.rule('writing')['content'])
+    memories = [dict(m, material_id=m['id'], source_url=m.get('source_ref',''))
+                for m in (context or {}).get('auto_sources',{}).get('materials',[])]
+    with db.tx() as conn:
+        conn.execute('UPDATE drafts SET writing_context=? WHERE id=? AND updated_at=? AND body=?',
+                     (db.dumps(context),draft['id'],draft['updated_at'],draft['body']))
+    write_configuration = Settings.load()
+    if 'writing_model' in payload:
+        from dataclasses import replace
+        if payload['writing_model'] not in llm.WRITING_MODELS:
+            raise ValueError('起草模型无效，未调用其他模型')
+        write_configuration = replace(write_configuration, writing_model=payload['writing_model'])
+    from . import ai_rules
+    ai_rules.record('writing',draft['id'],'起草',write_configuration.writing_model or write_configuration.llm_model,prompt)
     reply = llm.run(prompt,
-                    timeout=1200, tools=tools, max_turns=12 if tools else 2, task="write", json_output=True)
-    result = llm.extract_json(reply)
+                    timeout=1200, tools=tools, max_turns=12 if tools else 2, task="write", json_output=True, configuration=write_configuration)
+    result = _draft_result(reply, draft['id'])
     mode = "X" if draft["platform"] == "x" else "公众号"
     flags = prompts.voice_flags(settings, result.get("body", ""), mode)
     if flags:
-        revised = llm.extract_json(llm.run(prompts.build_revise(settings, flags, json.dumps(result, ensure_ascii=False)), task="write", json_output=True))
+        revision_prompt=ai_rules.apply(prompts.build_revise(settings,flags,json.dumps(result,ensure_ascii=False)),(context or {}).get('style',{}).get('working_rules') or ai_rules.rule('writing')['content'])
+        ai_rules.record('writing',draft['id'],'文风修订',write_configuration.writing_model or write_configuration.llm_model,revision_prompt)
+        revised = _draft_result(llm.run(revision_prompt, task="write", json_output=True, configuration=write_configuration), draft['id'])
         if revised.get("body"):
             result = revised
         flags = prompts.voice_flags(settings, result.get("body", ""), mode)
@@ -287,14 +348,28 @@ def _draft(settings: Settings, payload: dict) -> None:
         notes += "\n\n文风检查还提示：" + "；".join(flags) + "（只是提醒，回去重读这几处就行）"
     body = comments.PLACEHOLDER.sub("", str(result.get("body", "")))
     with db.tx() as conn:
+        current = conn.execute('SELECT updated_at,body FROM drafts WHERE id=?', (draft['id'],)).fetchone()
+        if not current or current['updated_at'] != draft['updated_at'] or current['body'] != draft['body']:
+            raise ValueError('起草期间稿件已有修改，已保留最新内容；请核对后再试')
         conn.execute("UPDATE drafts SET title=?, body=?, notes=?, status='draft', error=NULL, updated_at=? WHERE id=?",
                      (str(result.get("title", ""))[:200], body, notes.strip(), db.now(), draft["id"]))
         conn.execute("INSERT INTO draft_versions(draft_id, title, body, created_at, origin) VALUES (?,?,?,?, 'generated')",
                      (draft["id"], result.get("title", ""), result.get("body", ""), db.now()))
         conn.execute("UPDATE ideas SET status='drafted' WHERE id=?", (idea["id"],))
+        if context is not None:
+            merged = dict(context)
+            merged['sources'] = [s for s in (result.get('sources') or [])
+                                 if isinstance(s, dict) and str(s.get('where') or '').strip()][:60]
+            conn.execute('UPDATE drafts SET writing_context=? WHERE id=?', (db.dumps(merged), draft['id']))
+    write_model = write_configuration.writing_model
+    if write_model:
+        label = 'DeepSeek 官方 · ' if write_model == 'deepseek-v4-pro' else 'DaiTuAI · Claude-Kiro · '
+        comments.add(draft["id"], "ai", "写稿模型：" + label + write_model
+                     + "\n已选对标：" + ("、".join(f"#{b['id']} {b['title']}" for b in (context or {}).get("benchmarks", [])) or "本次未选")
+                     + "\n已选素材：" + ("、".join(f"#{m['id']} {m['title']}" for m in (context or {}).get("materials", [])) or "本次未手动选择；相关素材另按检索候选提供"))
     if memories:
         # Persist retrieved evidence independently of the model's willingness to cite it.
-        comments.add(draft["id"], "ai", "起草参考的历史录音（候选，不代表全部采用）：\n" + "\n\n".join(
+        comments.add(draft["id"], "ai", "起草自动检索素材（候选，不代表全部采用）：\n" + "\n\n".join(
             f"素材 #{m['material_id']}：{m['title']}\n{m['source_url']}\n"
             f"工作台：/#/materials/{m['material_id']}\n原文字位 {m['start']}–{m['end']}\n{m['excerpt']}"
             for m in memories))
@@ -447,6 +522,11 @@ def _auto_sync(settings: Settings) -> None:
         try:
             if Settings.load().feishu_auto_sync:
                 sync_minutes(settings)
+        except Exception:
+            traceback.print_exc()
+        try:
+            from .mobile_inbox import sync
+            sync()
         except Exception:
             traceback.print_exc()
         time.sleep(SYNC_EVERY)

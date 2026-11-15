@@ -21,9 +21,9 @@ export function GroupFilter({ groups, value, onChange, onCreated }: {
   </>
 }
 
-export function ContentActions({ kind, id, title, groupId, onChange, disabled = false }: {
+export function ContentActions({ kind, id, title, groupId, groupIds, onChange, disabled = false }: {
   kind: 'ideas' | 'drafts'; id: number; title: string; groupId: number | null
-  onChange: () => void; disabled?: boolean
+  onChange: () => void; disabled?: boolean; groupIds?:number[]
 }) {
   const toast = useToast()
   const [dialog, setDialog] = useState<'group' | 'delete' | null>(null)
@@ -52,7 +52,8 @@ export function ContentActions({ kind, id, title, groupId, onChange, disabled = 
         <Ic.Trash size={13} /> 删除
       </button>
     </span>
-    {dialog === 'group' && <GroupDialog currentId={groupId} onClose={() => setDialog(null)} onSave={async group_id => {
+    {dialog === 'group' && kind==='ideas' && <MultiGroupDialog current={groupIds ?? (groupId ? [groupId] : [])} onClose={()=>setDialog(null)} onSave={async group_ids=>{await api.patch(`/api/ideas/${id}`,{group_ids});onChange()}}/>}
+    {dialog === 'group' && kind==='drafts' && <GroupDialog currentId={groupId} onClose={() => setDialog(null)} onSave={async group_id => {
       await api.patch(`/api/${kind}/${id}`, { group_id })
       onChange()
     }} />}
@@ -67,6 +68,15 @@ export function ContentActions({ kind, id, title, groupId, onChange, disabled = 
         : '删除本机这篇稿件、历史版本、批注和配图，无法撤销。已经存到平台或飞书的内容需要在对应平台管理。'}</p>
     </Dialog>
   </>
+}
+
+function MultiGroupDialog({current,onClose,onSave}:{current:number[];onClose:()=>void;onSave:(ids:number[])=>Promise<void>}) {
+  const [groups,setGroups]=useState<ContentGroup[]>([]),[ids,setIds]=useState(current)
+  const [name,setName]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false)
+  useEffect(()=>{api.get<ContentGroup[]>('/api/content-groups').then(items=>{setGroups(items);setLoaded(true)}).catch(e=>setError(e.message))},[])
+  async function save(){setBusy(true);try{await onSave(ids);onClose()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+  async function create(){setBusy(true);try{const g=await api.post<ContentGroup>('/api/content-groups',{name});setGroups(old=>old.some(i=>i.id===g.id)?old:[...old,g]);setIds(old=>Array.from(new Set([...old,g.id])));setName('')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+  return <Dialog open title="设置选题分组（可多选）" onClose={onClose} footer={<><button className="btn" onClick={onClose}>取消</button><button className="btn primary" disabled={busy||!loaded} onClick={save}>保存分组</button></>}><div className="stack"><p className="small muted">同一选题可放入多个分组。全部取消即为未分组，正文和材料不变。</p>{groups.map(g=><label className="row" key={g.id}><input type="checkbox" checked={ids.includes(g.id)} disabled={busy} onChange={e=>setIds(e.target.checked?[...ids,g.id]:ids.filter(i=>i!==g.id))}/>{g.name}</label>)}<div className="inline-form"><input className="input" aria-label="新分组名称" maxLength={40} value={name} onChange={e=>setName(e.target.value)} placeholder="新建并选中分组"/><button className="btn" disabled={busy||!name.trim()} onClick={create}>新建</button></div>{error&&<p className="err" role="alert">{error}</p>}</div></Dialog>
 }
 
 function GroupDialog({ currentId, createOnly = false, onClose, onSave }: {

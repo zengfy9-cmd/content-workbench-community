@@ -1,9 +1,11 @@
 import uuid
 from content_workbench import db,codex_tasks,codex_native
 from test_app import client,login,ORIGIN
+from content_workbench.config import Settings
 
 
 def test_task_lifecycle_idempotency_adoption_and_original_recovery(monkeypatch):
+    Settings(llm_backend='codex-cli').save()
     def run(prompt,**kwargs):
         assert kwargs['effort']=='xhigh'
         kwargs['on_event']({'thread_id':'original','turn_id':'turn'})
@@ -42,6 +44,7 @@ def test_task_auth_and_failed_result_not_adopted():
 
 
 def test_restart_does_not_resubmit_and_busy_requests_do_not_duplicate(monkeypatch):
+    Settings(llm_backend='codex-cli').save()
     launched=[];monkeypatch.setattr(codex_tasks,'launch',launched.append)
     c=client();login(c);h={'Origin':ORIGIN}
     p={'request_key':str(uuid.uuid4()),'title':'测试','project':'项目','platform':'wechat','prompt':'任务'}
@@ -54,6 +57,7 @@ def test_restart_does_not_resubmit_and_busy_requests_do_not_duplicate(monkeypatc
 
 
 def test_cancelled_worker_result_is_not_adopted(monkeypatch):
+    Settings(llm_backend='codex-cli').save()
     launched=[];monkeypatch.setattr(codex_tasks,'launch',launched.append)
     c=client();login(c);h={'Origin':ORIGIN}
     p={'request_key':str(uuid.uuid4()),'title':'测试','project':'项目','platform':'wechat','prompt':'任务'}

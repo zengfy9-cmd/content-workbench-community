@@ -25,6 +25,8 @@ def test_search_expands_related_terms_without_calling_model(monkeypatch):
 
 def test_publication_snapshot_immutable_and_observations_append_only():
  c=setup();did=c.post('/api/drafts',json={'platform':'wechat','title':'原题','body':'发布时正文'},headers=H).json()['id']
+ from review_helpers import reviewed
+ reviewed(c,did)
  r=c.post(f'/api/drafts/{did}/delivery-record',json={'kind':'manual_published','confirm':True,'url':'https://example.com/article'},headers=H);assert r.status_code==200,r.text
  pid=db.row('SELECT id FROM publications')['id']
  c.put(f'/api/drafts/{did}',json={'body':'发布后修改'},headers=H)

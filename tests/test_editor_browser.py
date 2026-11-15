@@ -14,14 +14,15 @@ from content_workbench.config import Settings
 
 
 @pytest.fixture
-def editor_server():
+def editor_server(request):
     assert (Path(__file__).parents[1] / 'web/dist/index.html').exists(), 'Build web before browser regression tests'
     sock = socket.socket()
     sock.bind(('127.0.0.1', 0))
     port = sock.getsockname()[1]
     base = f'http://127.0.0.1:{port}'
-    settings = Settings(login_mode='local', llm_backend='disabled', feishu_auto_sync=False,
-                        feishu_auto_archive=False, origins=[base], allowed_hosts=[f'127.0.0.1:{port}'])
+    settings = Settings(**{'login_mode':'local','llm_backend':'disabled','feishu_auto_sync':False,
+                          'feishu_auto_archive':False,'origins':[base],'allowed_hosts':[f'127.0.0.1:{port}'],
+                          **getattr(request,'param',{})})
     settings.save()
     app = create_app(settings, start_jobs=False)
     server = uvicorn.Server(uvicorn.Config(app, log_level='error'))
@@ -50,6 +51,35 @@ def select_text(page, text):
       throw new Error('Test selection missing');
     }''', text)
     page.wait_for_timeout(100)
+
+
+def test_bold_edge_space_in_old_draft_survives_edit_preview_and_reopen(editor_server):
+    base, client = editor_server
+    response = client.post('/api/drafts', json={'platform': 'wechat', 'title': '加粗空格临时稿', 'body': '**选题 **：说明文字。'})
+    response.raise_for_status()
+    did = response.json()['id']
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel='chromium')
+        page = browser.new_page()
+        try:
+            page.goto(f'{base}/#/drafts/{did}')
+            editor = page.locator('.rich-body')
+            expect(editor.locator('strong')).to_have_text('选题')
+            assert '**' not in editor.inner_text()
+            editor.locator('p').first.click(); page.keyboard.press('End'); page.keyboard.insert_text('补充。')
+            page.get_by_role('button', name='保存', exact=True).click()
+            page.wait_for_timeout(600)
+            body = client.get(f'/api/drafts/{did}').json()['body']
+            assert '**选题**' in body and '**选题 **' not in body
+            page.get_by_role('button', name='一键排版', exact=True).click()
+            expect(page.locator('.phone-body strong')).to_have_text('选题')
+            assert '**' not in page.locator('.phone-body').inner_text()
+            page.reload()
+            expect(editor.locator('strong')).to_have_text('选题')
+            assert '**' not in editor.inner_text()
+        finally:
+            browser.close()
+            client.delete(f'/api/drafts/{did}').raise_for_status()
 
 
 def test_editor_save_reopen_theme_alignment_prompt_and_clipboard(editor_server):
@@ -138,3 +168,32 @@ def test_continuous_and_trailing_shift_enter_have_no_visible_slash(editor_server
         finally:
             browser.close()
             client.delete(f'/api/drafts/{did}').raise_for_status()
+
+
+def test_small_blue_footer_survives_editor_change_and_reload(editor_server):
+    base, client = editor_server
+    body = '正文。\n\n:::center small-blue\n点赞\n:::\n\n:::center small-blue\n在看\n:::\n\n:::center small-blue\n转发\n:::\n'
+    did = client.post('/api/drafts', json={'platform': 'wechat', 'title': '局部样式验证', 'body': body}).json()['id']
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel='chromium')
+        try:
+            page = browser.new_page()
+            page.goto(f'{base}/#/drafts/{did}')
+            small = page.locator('.rich-body p').filter(has_text='点赞')
+            expect(small).to_have_css('font-size', '12px')
+            expect(small).to_have_css('color', 'rgb(22, 119, 255)')
+            first = page.locator('.rich-body p').first
+            first.click()
+            page.keyboard.press('Home')
+            page.keyboard.type('X')
+            for _ in range(100):
+                saved = client.get(f'/api/drafts/{did}').json()['body']
+                if saved.startswith('X'):
+                    break
+                time.sleep(.1)
+            assert saved.count(':::center small-blue') == 3
+            assert saved.startswith('X')
+            page.reload()
+            expect(page.locator('.rich-body p').filter(has_text='点赞')).to_have_css('font-size', '12px')
+        finally:
+            browser.close()

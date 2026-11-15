@@ -47,6 +47,9 @@ def test_api_requires_confirmation_and_connection_without_launching_browser():
     headers = {'Origin': ORIGIN}
     url = f'/api/drafts/{did}/xhs/save-web-draft'
     assert c.post(url, json={}, headers=headers).status_code == 400
+    c.put(f'/api/drafts/{did}',json={'title':'原稿','body':'已审核的原始正文'},headers=headers).raise_for_status()
+    from review_helpers import reviewed
+    reviewed(c,did)
     response = c.post(url, json={'confirm': True}, headers=headers)
     assert response.status_code == 400 and '先连接' in response.json()['detail']
     assert c.get('/api/xhs/browser').json()['state'] == 'disconnected'

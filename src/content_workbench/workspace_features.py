@@ -138,7 +138,7 @@ def start_plan(pid: int):
     return {'id': did}
 
 
-TIP_CHOICES = {'category': ('选题', '标题', '开头', '结构', '素材', '排版'),
+TIP_CHOICES = {'category': ('选题', '标题', '开头', '结构', '素材', '金句', '排版'),
                'origin': ('我的心得', '他人分享', 'AI建议'),
                'validation': ('待验证', '试用中', '用过有效')}
 TIP_TEXT = {'title': 200, 'content': 12000, 'scenario': 3000, 'steps': 6000,
@@ -198,6 +198,69 @@ def update_tip(tid: int, body: dict = Body(...)):
     with db.tx() as c:
         c.execute(f"UPDATE content_tips SET {','.join(k+'=?' for k in values)} WHERE id=?", (*values.values(), tid))
     return db.row('SELECT * FROM content_tips WHERE id=?', (tid,))
+
+
+# ---------------------------------------------------------------- 稿件 × 灵感
+def _tip_row(row: dict) -> dict:
+    return {'tip_id': row['id'], 'title': row['title'], 'content': row['content'],
+            'category': row['category'], 'origin': row['origin'], 'validation': row['validation'],
+            'anchor': row.get('anchor') or ''}
+
+
+@router.get('/api/drafts/{did}/tips')
+def draft_tips(did: int):
+    if not db.row('SELECT id FROM drafts WHERE id=?', (did,)):
+        raise HTTPException(404, '稿件不存在')
+    used = db.rows('SELECT t.*,d.anchor FROM draft_tips d JOIN content_tips t ON t.id=d.tip_id '
+                   'WHERE d.draft_id=? ORDER BY d.tip_id', (did,))
+    return {'used': [_tip_row(r) for r in used]}
+
+
+@router.post('/api/drafts/{did}/tips')
+def add_draft_tip(did: int, body: dict = Body(...)):
+    if not db.row('SELECT id FROM drafts WHERE id=?', (did,)):
+        raise HTTPException(404, '稿件不存在')
+    try:
+        tip_id = int(body.get('tip_id'))
+    except (TypeError, ValueError):
+        raise HTTPException(400, '灵感编号无效')
+    if not db.row('SELECT id FROM content_tips WHERE id=?', (tip_id,)):
+        raise HTTPException(404, '灵感不存在')
+    anchor = str(body.get('anchor') or '').strip()[:200]
+    with db.tx() as c:
+        c.execute('INSERT OR REPLACE INTO draft_tips(draft_id,tip_id,anchor,created_at) VALUES(?,?,?,?)',
+                  (did, tip_id, anchor, db.now()))
+    return {'ok': True}
+
+
+@router.delete('/api/drafts/{did}/tips/{tid}')
+def remove_draft_tip(did: int, tid: int):
+    with db.tx() as c:
+        c.execute('DELETE FROM draft_tips WHERE draft_id=? AND tip_id=?', (did, tid))
+    return {'ok': True}
+
+
+def _tip_table_cell(text: str) -> str:
+    return str(text or '').replace('|', '/').replace('\n', ' ').strip()
+
+
+@router.get('/api/drafts/{did}/tips/table')
+def draft_tips_table(did: int):
+    if not db.row('SELECT id FROM drafts WHERE id=?', (did,)):
+        raise HTTPException(404, '稿件不存在')
+    used = {r['tip_id']: r['anchor'] or '' for r in
+            db.rows('SELECT tip_id,anchor FROM draft_tips WHERE draft_id=?', (did,))}
+    tips = db.rows('SELECT * FROM content_tips ORDER BY id')
+    lines = ['## 附：内容灵感卡片对照', '', '| 卡片 | 原话 | 用在哪 |', '| --- | --- | --- |']
+    for t in tips:
+        anchor = used.get(t['id'])
+        where = _tip_table_cell(anchor) if anchor else '未用'
+        txt = _tip_table_cell(t['content']).strip('“”"')
+        if len(txt) > 120:
+            txt = txt[:118] + '……'
+        quote = '“' + txt + '”'
+        lines.append(f"| #{t['id']} {_tip_table_cell(t['title'])[:30]} | {quote} | {where} |")
+    return {'markdown': '\n'.join(lines) + '\n'}
 
 
 def _mcp(name, arguments):

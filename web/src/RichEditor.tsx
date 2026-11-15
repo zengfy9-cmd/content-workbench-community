@@ -29,7 +29,7 @@ md.core.ruler.before('inline', 'legacy_editor_breaks', state => {
 })
 md.block.ruler.before('fence', 'alignment', (state, start, end, silent) => {
   const marker = state.src.slice(state.bMarks[start] + state.tShift[start], state.eMarks[start]).trim()
-  if (marker !== ':::center' && marker !== ':::left') return false
+  if (![':::center', ':::left', ':::center small-blue'].includes(marker)) return false
   let last = start + 1
   while (last < end && state.src.slice(state.bMarks[last] + state.tShift[last], state.eMarks[last]).trim() !== ':::') last++
   if (last >= end) return false
@@ -40,7 +40,13 @@ md.block.ruler.before('fence', 'alignment', (state, start, end, silent) => {
   try { state.md.block.tokenize(state, start + 1, last) }
   finally { state.lineMax = limit }
   for (const token of state.tokens.slice(first)) {
-    if (token.type === 'paragraph_open' || token.type === 'heading_open') token.attrSet('style', `text-align:${marker.slice(3)}`)
+    if (token.type === 'paragraph_open' || token.type === 'heading_open') {
+      token.attrSet('style', `text-align:${marker.slice(3).split(' ')[0]}`)
+      if (marker === ':::center small-blue') {
+        token.attrSet('style', 'text-align:center;font-size:12px!important;color:#1677ff!important')
+        token.attrSet('data-workbench-note', 'small-blue')
+      }
+    }
   }
   state.line = last + 1
   return true
@@ -79,7 +85,10 @@ const isSpace = (c: string) => /\s/.test(c)
 
 function fixPairs(line: string, delim: string): string {
   const pos: number[] = []
-  for (let i = line.indexOf(delim); i >= 0; i = line.indexOf(delim, i + delim.length)) pos.push(i)
+  for (let i = line.indexOf(delim); i >= 0; i = line.indexOf(delim, i + delim.length)) {
+    const slashes = line.slice(0, i).match(/\\+$/)?.[0].length || 0
+    if (slashes % 2 === 0) pos.push(i)
+  }
   if (pos.length < 2) return line
   const n = delim.length
   let out = '', last = 0
@@ -88,13 +97,14 @@ function fixPairs(line: string, delim: string): string {
     let inner = line.slice(o + n, c)
     const before = o > 0 ? line[o - 1] : ' '
     const after = c + n < line.length ? line[c + n] : ' '
-    let lead = '', trail = ''
-    if (!isSpace(before) && !PUNCT.includes(before)) {
+    let lead = inner.match(/^\s*/)?.[0] || '', trail = inner.match(/\s*$/)?.[0] || ''
+    inner = inner.trim()
+    if (!lead && !isSpace(before) && !PUNCT.includes(before)) {
       let j = 0
       while (j < inner.length && PUNCT.includes(inner[j])) j++
       lead = inner.slice(0, j); inner = inner.slice(j)
     }
-    if (!isSpace(after) && !PUNCT.includes(after)) {
+    if (!trail && !isSpace(after) && !PUNCT.includes(after)) {
       let j = inner.length
       while (j > 0 && PUNCT.includes(inner[j - 1])) j--
       trail = inner.slice(j); inner = inner.slice(0, j)
@@ -173,8 +183,8 @@ function lineStart(text: string): string {
 function block(node: JSONContent, indent = ''): string {
   const kids = node.content || []
   switch (node.type) {
-    case 'paragraph': { const text=indent + lineStart(inline(kids)).replace(/\n/g, '\n' + indent); return node.attrs?.textAlign ? ':::'+node.attrs.textAlign+'\n'+text+'\n:::' : text }
-    case 'heading': { const text='#'.repeat(Number(node.attrs?.level || 2)) + ' ' + inline(kids); return node.attrs?.textAlign ? ':::'+node.attrs.textAlign+'\n'+text+'\n:::' : text }
+    case 'paragraph': { const text=indent + lineStart(inline(kids)).replace(/\n/g, '\n' + indent); return node.attrs?.textAlign ? ':::'+node.attrs.textAlign+(node.attrs.noteStyle==='small-blue'?' small-blue':'')+'\n'+text+'\n:::' : text }
+    case 'heading': { const text='#'.repeat(Number(node.attrs?.level || 2)) + ' ' + inline(kids); return node.attrs?.textAlign ? ':::'+node.attrs.textAlign+(node.attrs.noteStyle==='small-blue'?' small-blue':'')+'\n'+text+'\n:::' : text }
     case 'blockquote': return kids.map(k => block(k)).join('\n\n').split('\n').map(l => (l ? '> ' + l : '>')).join('\n')
     case 'bulletList':
     case 'orderedList': {
@@ -232,7 +242,7 @@ export function RichEditor({ value, onChange, onFiles, placeholder, editorRef, a
 
   const editor = useEditor({
     extensions: [
-      Extension.create({name:'paragraphAlignment',addGlobalAttributes(){return [{types:['paragraph','heading'],attributes:{textAlign:{default:null,parseHTML:el=>['center','left'].includes(el.style.textAlign)?el.style.textAlign:null,renderHTML:attrs=>attrs.textAlign?{style:`text-align:${attrs.textAlign}`}:{}}}}]}}),
+      Extension.create({name:'paragraphAlignment',addGlobalAttributes(){return [{types:['paragraph','heading'],attributes:{noteStyle:{default:null,parseHTML:el=>el.getAttribute('data-workbench-note')==='small-blue'?'small-blue':null,renderHTML:attrs=>attrs.noteStyle==='small-blue'?{'data-workbench-note':'small-blue',style:'font-size:12px!important;color:#1677ff!important'}:{}},textAlign:{default:null,parseHTML:el=>['center','left'].includes(el.style.textAlign)?el.style.textAlign:null,renderHTML:attrs=>attrs.textAlign?{style:`text-align:${attrs.textAlign}`}:{}}}}]}}),
       PromptBlock,
       StarterKit.configure({ heading: { levels: [2, 3, 4] }, underline: false, strike: false,
         link: { openOnClick: false, autolink: true } }),

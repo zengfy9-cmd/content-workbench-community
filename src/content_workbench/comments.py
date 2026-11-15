@@ -18,12 +18,32 @@ from .textutil import normalize_emphasis
 PLACEHOLDER = re.compile(r"【([^】\n]{1,300})】")
 
 
+def is_draft_record(row):
+    # Auto-generated provenance predates review gates. Unanswered records
+    # remain visible, but are not edit requests. A user reply makes it actionable.
+    if row['author'] != 'ai' or row.get('quote') or row.get('replies') or row.get('last_author'):
+        return False
+    text=row['body']
+    return ((text.startswith('写稿模型：') and '\n已选对标：' in text and '\n已选素材：' in text)
+        or (text.startswith('起草自动检索素材（候选，不代表全部采用）：\n素材 #')
+            and '\n工作台：/#/materials/' in text and '\n原文字位 ' in text))
+
+
+def open_actions(draft_id=None):
+    rows=db.rows('''SELECT t.id,t.body,t.quote,t.author,
+        (SELECT c.author FROM comments c WHERE c.parent_id=t.id ORDER BY c.id DESC LIMIT 1) last_author
+        FROM comments t WHERE t.parent_id IS NULL AND t.status='open'
+        AND (? IS NULL OR t.draft_id=?) ORDER BY t.id''',(draft_id,draft_id))
+    return [r for r in rows if not is_draft_record(r)]
+
+
 def threads(draft_id: int) -> list[dict]:
     rows = db.rows("SELECT * FROM comments WHERE draft_id=? ORDER BY id", (draft_id,))
     roots = {r["id"]: {**r, "replies": []} for r in rows if r["parent_id"] is None}
     for r in rows:
         if r["parent_id"] is not None and r["parent_id"] in roots:
             roots[r["parent_id"]]["replies"].append(r)
+    for thread in roots.values():thread["draft_record"]=is_draft_record(thread)
     return list(roots.values())
 
 
@@ -138,9 +158,7 @@ def revise(settings, draft_id: int) -> dict:
             continue
         add(draft_id, "ai", str(r["reply"]), parent_id=tid)
         answered += 1
-        if r.get("resolved"):
-            with db.tx() as conn:
-                conn.execute("UPDATE comments SET status='resolved', resolved_at=? WHERE id=?", (db.now(), tid))
+        # Model replies are suggestions; only the author resolves a thread.
     for c in result.get("new_comments") or []:
         text = str(c.get("text", "")).strip()
         if text:

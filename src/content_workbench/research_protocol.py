@@ -1,6 +1,7 @@
 """Versioned research instructions and task-local model routing; no credentials in jobs."""
 from dataclasses import replace
 import hashlib
+from pathlib import Path
 
 from fastapi import HTTPException
 
@@ -35,7 +36,7 @@ def options(settings=None):
             pass
     if settings.llm_backend == 'claude-code':
         items.append({'id': 'claude-code', 'label': '本机 Claude Code · ' + settings.llm_model, 'available': True})
-    if settings.llm_backend == 'codex-cli':
+    if settings.llm_backend == 'codex-cli' or (settings.codex_cli_path and Path(settings.codex_cli_path).is_file()):
         items.append({'id':'codex-cli','label':'本机 Codex · ChatGPT 订阅 · '+settings.codex_model,'available':True})
     return {'models': items, 'rule_version': VERSION, 'rule_hash': RULE_HASH, 'rules': RULES,
             'note': '配置可用不等于本次调用成功；Codex CLI 使用本机 ChatGPT 登录，独立模型 API 按对应服务计费。'}

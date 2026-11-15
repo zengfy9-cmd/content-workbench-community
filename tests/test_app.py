@@ -67,5 +67,7 @@ def test_publish_requires_confirm():
     h = {"Origin": ORIGIN}
     did = c.post("/api/drafts", json={"platform": "x", "title": "t", "body": "a"}, headers=h).json()["id"]
     assert c.post(f"/api/drafts/{did}/publish", json={}, headers=h).status_code == 400
+    from review_helpers import reviewed
+    reviewed(c,did)
     r = c.post(f"/api/drafts/{did}/publish", json={"confirm": True}, headers=h)
     assert r.status_code == 400 and "X 还没连接" in r.json()["detail"]

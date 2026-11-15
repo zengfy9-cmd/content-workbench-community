@@ -13,7 +13,7 @@ import ssl
 import time
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from urllib.parse import quote, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 MAX_BYTES = 8 * 1024 * 1024  # WeChat pages include several MB of inline scripts outside the article.
 MAX_BODY = 200_000
@@ -320,12 +320,31 @@ def _metadata(parser: ArticleParser, host: str) -> dict:
             "tags": list(dict.fromkeys(t.strip() for t in tags if 0 < len(t.strip()) <= 40))[:8]}
 
 
+def wechat_reading_url(url: str, html: str = '') -> str:
+    """Resolve article identity without running page JavaScript or using cookies."""
+    if (urlsplit(url).hostname or '').lower() != 'mp.weixin.qq.com':
+        return ''
+    query = parse_qs(urlsplit(url).query)
+    parts = {}
+    for name, variable in (('__biz', 'biz'), ('mid', 'mid'), ('idx', 'idx'), ('sn', 'sn')):
+        values = query.get(name)
+        match = re.search(r'\bvar\s+' + variable + r'\s*=\s*[\"\x27]([^\"\x27]+)', html)
+        parts[name] = values[0] if values else unescape(match[1]) if match else ''
+    if not all(parts.values()):
+        return ''
+    if not parts['mid'].isdigit() or not parts['idx'].isdigit() or not re.fullmatch(r'[a-fA-F0-9]{32}', parts['sn']):
+        return ''
+    return 'https://mp.weixin.qq.com/s?' + urlencode(parts)
+
+
 def extract_article(html: str, url: str) -> dict:
     parser = ArticleParser()
     parser.feed(html)
     nodes = parser.nodes
     host = (urlsplit(url).hostname or "").lower()
     metadata = _metadata(parser, host)
+    if host == 'mp.weixin.qq.com':
+        metadata['reading_url'] = wechat_reading_url(url, html)
     meta = {n.attrs.get("property", n.attrs.get("name", "")): n.attrs.get("content", "") for n in nodes if n.tag == "meta"}
     content = next((n for n in nodes if n.attrs.get("id") == "js_content"), None)
     # Ordinary WeChat long articles also carry picture_page_info_list. Their

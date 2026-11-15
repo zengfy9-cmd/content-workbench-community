@@ -3,6 +3,7 @@ import { api, type VideoOverview } from '../api'
 import { go } from '../App'
 import { ago, Empty, usePoll, useToast } from '../ui'
 import { fmtDur } from './Video'
+import { XiloHandoff } from '../XiloHandoff'
 import * as Ic from '../icons'
 
 const started = (r: VideoOverview) => r.scenes > 0 || !!r.status || !!r.video
@@ -30,9 +31,11 @@ export function Videos() {
       <div className="page-head">
         <div>
           <h1>视频</h1>
-          <p>把长文做成竖屏口播视频。AI 先写分镜，你一个镜头一个镜头地改、当场预览，满意了再出片。</p>
+          <p>剪真人口播、用旁白做不露脸视频，或接续已有的长文转视频项目。</p>
         </div>
       </div>
+
+      <div className="card card-pad"><XiloHandoff scope="video"/></div>
 
       {rows === null ? (
         <div className="card stack card-pad">{[0, 1, 2].map(i => <div key={i} className="skeleton" style={{ height: 52 }} />)}</div>

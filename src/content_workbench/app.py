@@ -19,7 +19,7 @@ from .textutil import normalize_emphasis, thread_report, wechat_html
 from .wechat_layout import layout_info, themes as wechat_themes, validate_theme
 from . import benchmarks, deepseek_api, workspace_features, media_imports, intake_batches
 from .platforms import PLATFORMS
-from . import idea_cards, asset_workflow, video_research
+from . import idea_cards, asset_workflow, video_research, wechat_branding
 
 WX_INLINE_MAX = 1024 * 1024 - 4096      # media/uploadimg: jpg/png under 1MB
 WX_COVER_MAX = 9 * 1024 * 1024          # permanent image material: 10MB
@@ -28,12 +28,14 @@ DRAFT_FIELDS = ("title", "body", "notes", "summary", "source_url")
 
 # CW_WEB_DIST lets a test instance serve a build without touching the live web/dist
 WEB_DIST = Path(os.environ.get("CW_WEB_DIST") or Path(__file__).resolve().parents[2] / "web" / "dist")
-SECRET_KEYS = ("x_client_id", "x_client_secret", "wx_appid", "wx_secret", deepseek_api.SECRET_KEY)
+SECRET_KEYS = ("x_client_id", "x_client_secret", "wx_appid", "wx_secret", deepseek_api.SECRET_KEY,"daitu_api_key")
 
 
 def create_app(settings: Settings | None = None, start_jobs: bool = True) -> FastAPI:
     settings = settings or Settings.load()
     app = FastAPI(title="内容工作台", docs_url=None, redoc_url=None, openapi_url=None)
+    from . import model_fallbacks
+    app.include_router(model_fallbacks.router)
     app.state.settings = settings
     app.include_router(benchmarks.router)
     app.include_router(media_imports.router)
@@ -43,22 +45,50 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
     store = SecretStore()
     xhs_bridge = xhs_browser.Bridge()
     db.get()
+    from . import draft_workflow
+    draft_workflow.setup()
+    app.include_router(draft_workflow.router)
     workspace_features.setup()
+    from . import control_center
+    control_center.setup()
+    app.include_router(control_center.router)
+    from . import ai_rules
+    ai_rules.setup()
+    app.include_router(ai_rules.router)
+    from . import image_api
+    app.include_router(image_api.router)
+    from . import mobile_inbox
+    mobile_inbox.setup()
+    app.include_router(mobile_inbox.router)
+    from . import password_auth
+    password_auth.setup()
     asset_workflow.setup()
     app.include_router(asset_workflow.router)
     video_research.setup()
     app.include_router(video_research.router)
     app.include_router(workspace_features.router)
-    if not auth.has_credentials(settings.rp_id):
+    if not auth.has_credentials(settings.rp_id) and not password_auth.registered():
         ensure_setup_code()
-    if start_jobs:
+    if start_jobs and not (settings.cloud_url and settings.storage_mode=='local'):
         jobs.start(settings)
 
     # ------------------------------------------------------------ auth
     @app.get("/api/auth/state")
     def auth_state(request: Request):
-        return {"registered": auth.has_credentials(settings.rp_id) or settings.access_login or settings.local_login,
-                "logged_in": auth.session_valid(request), "login_mode": "local" if settings.local_login else "access" if settings.access_login else "passkey"}
+        return {"registered": password_auth.registered() if settings.login_mode=='password' else auth.has_credentials(settings.rp_id) or settings.access_login or settings.local_login,
+                "logged_in": auth.session_valid(request), "login_mode": "local" if settings.local_login else "access" if settings.access_login else settings.login_mode}
+
+    @app.post('/api/auth/password/register')
+    def password_register(request:Request,response:Response,body:dict=Body(...)):
+        if settings.login_mode!='password':raise HTTPException(404)
+        password_auth.register(request,body);auth._new_session(response,request,settings)
+        return {'ok':True}
+
+    @app.post('/api/auth/password/login')
+    def password_login(request:Request,response:Response,body:dict=Body(...)):
+        if settings.login_mode!='password':raise HTTPException(404)
+        password_auth.login(request,body);auth._new_session(response,request,settings)
+        return {'ok':True}
 
     @app.post("/api/auth/register/options")
     def reg_options(request: Request, body: dict = Body(default={})):
@@ -90,6 +120,7 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
     def status():
         return {
             "llm": llm.status(),
+            "storage": {"mode":settings.storage_mode,"url":settings.cloud_url},
             "transcription": sources.transcription_available(),
             "x_connected": bool(store.get("x_tokens")),
             "x_media": "media.write" in publish.x_scopes(store),
@@ -98,6 +129,7 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
             "case_search": prompts.case_search_on(settings),
             "author": settings.author,
             "workspace_label": settings.workspace_label,
+            "workbench_name": settings.workbench_name,
             "wechat_configured": all(store.present("wx_appid", "wx_secret").values()),
             "wechat_cover": bool(store.get("wx_default_cover")),
             "counts": {
@@ -339,12 +371,22 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
 
     @app.patch("/api/ideas/{iid}")
     def update_idea(iid: int, body: dict = Body(...)):
+        if "title" in body:
+            if not isinstance(body["title"], str) or not body["title"].strip() or len(body["title"].strip()) > 300:
+                raise HTTPException(400, "选题标题请填写1到300个字")
+            body["title"] = body["title"].strip()
         extra = idea_cards.values(body)
         with db.tx() as conn:
             if not conn.execute("SELECT 1 FROM ideas WHERE id=?", (iid,)).fetchone():
                 raise HTTPException(404, "选题不存在")
-            if "group_id" in body:
-                conn.execute("UPDATE ideas SET group_id=? WHERE id=?", (checked_group_id(body), iid))
+            if "group_ids" in body or "group_id" in body:
+                ids = body.get('group_ids') if 'group_ids' in body else ([checked_group_id(body)] if body.get('group_id') is not None else [])
+                if not isinstance(ids,list) or len(ids)>30 or any(type(g) is not int or not conn.execute('SELECT 1 FROM content_groups WHERE id=?',(g,)).fetchone() for g in ids):
+                    raise HTTPException(400,'请选择有效分组，最多30个')
+                ids=list(dict.fromkeys(ids))
+                conn.execute('DELETE FROM idea_group_links WHERE idea_id=?',(iid,))
+                conn.executemany('INSERT INTO idea_group_links VALUES(?,?)',[(iid,g) for g in ids])
+                conn.execute("UPDATE ideas SET group_id=? WHERE id=?", (ids[0] if ids else None, iid))
             if "starred" in body:
                 conn.execute("UPDATE ideas SET starred=? WHERE id=?", (1 if body["starred"] else 0, iid))
             if body.get("status") in ("new", "drafted", "dropped"):
@@ -371,6 +413,7 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
 
     @app.post("/api/ideas/{iid}/draft")
     def draft_from_idea(iid: int, body: dict = Body(...)):
+        writing = selected_writing_model(body)
         platform = body.get("platform")
         if platform not in PLATFORMS:
             raise HTTPException(400, "请选择公众号、小红书、抖音或推特")
@@ -385,7 +428,7 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
                 for item in context['benchmarks']:
                     benchmarks._attach(conn,did,item['id'],item.get('analysis_id'))
                 conn.execute("UPDATE ideas SET status='drafted' WHERE id=?",(iid,))
-                conn.execute('INSERT INTO jobs(kind,payload,created_at,updated_at) VALUES(?,?,?,?)',('draft',db.dumps({'draft_id':did}),db.now(),db.now()))
+                conn.execute('INSERT INTO jobs(kind,payload,created_at,updated_at) VALUES(?,?,?,?)',('draft',db.dumps({'draft_id':did, **writing}),db.now(),db.now()))
             jobs.wake()
             return {'id':did}
         if idea.get("benchmark_id"):
@@ -400,7 +443,36 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
             cur = conn.execute("INSERT INTO drafts(idea_id, platform, title, group_id, status, created_at, updated_at) VALUES (?,?,?,?, 'generating', ?, ?)",
                                (iid, platform, idea["title"], idea["group_id"], db.now(), db.now()))
             did = cur.lastrowid
-        jobs.enqueue("draft", {"draft_id": did})
+        jobs.enqueue("draft", {"draft_id": did, **writing})
+        return {"id": did}
+
+    def selected_writing_model(body: dict) -> dict:
+        value = body.get("writing_model", settings.writing_model)
+        if ("writing_model" in body or value) and value not in llm.WRITING_MODELS:
+            raise HTTPException(400, "请选择 Claude Opus 5.5 或 DeepSeek V4 Pro")
+        return {"writing_model": value} if value else {}
+
+    @app.get("/api/writing/models")
+    def writing_models():
+        return llm.writing_models(settings)
+
+    @app.post("/api/drafts/{did}/retry-draft")
+    def retry_draft(did: int, body: dict = Body(...)):
+        writing = selected_writing_model(body)
+        with db.tx() as conn:
+            draft = conn.execute("SELECT * FROM drafts WHERE id=?", (did,)).fetchone()
+            if not draft:
+                raise HTTPException(404, "稿件不存在")
+            if draft['status'] != 'failed' or not draft['idea_id']:
+                raise HTTPException(409, "仅支持重试起草失败的选题稿件")
+            if draft['body'].strip():
+                raise HTTPException(409, "这篇已有正文，请保留现有稿件，通过写作准备另起一篇")
+            if conn.execute("SELECT 1 FROM jobs WHERE kind='draft' AND state IN ('queued','running') AND json_extract(payload,'$.draft_id')=?", (did,)).fetchone():
+                raise HTTPException(409, "这篇已经在起草，请等待结果")
+            conn.execute("UPDATE drafts SET status='generating',error=NULL,updated_at=? WHERE id=?", (db.now(),did))
+            conn.execute("INSERT INTO jobs(kind,payload,created_at,updated_at) VALUES('draft',?,?,?)",
+                         (db.dumps({'draft_id':did, **writing}),db.now(),db.now()))
+        jobs.wake()
         return {"id": did}
 
     from . import codex_archive
@@ -824,6 +896,8 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
         found = images.get(iid)
         if not found:
             raise HTTPException(404)
+        if iid == settings.wechat_branding.get("card_image_id"):
+            raise HTTPException(400, "这是固定排版名片，请先更换名片配置")
         draft = db.row("SELECT body FROM drafts WHERE id=?", (found["draft_id"],))
         if draft and iid in images.referenced(draft["body"]):
             raise HTTPException(400, "正文里还在用这张图，先从正文里删掉")
@@ -833,6 +907,28 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
     @app.get("/api/wechat/themes")
     def list_wechat_themes():
         return {"themes": wechat_themes(), "default": "green-white-clean"}
+
+    @app.put("/api/wechat/branding/start-number")
+    def set_wechat_start_number(body: dict = Body(...)):
+        number = body.get("number")
+        if type(number) is not int or not 1 <= number <= 1000000:
+            raise HTTPException(400, "请输入 1～1000000 之间的原创起始篇数")
+        if settings.wechat_branding.get("enabled") is not True:
+            raise HTTPException(400, "尚未配置固定首尾排版")
+        if db.row("SELECT 1 FROM wechat_brand_numbers LIMIT 1"):
+            raise HTTPException(409, "已有稿件编号，起始篇数不能再覆盖已有记录")
+        settings.wechat_branding = {**settings.wechat_branding, "first_number": number}
+        settings.save()
+        return {"ok": True}
+
+    @app.put("/api/drafts/{did}/wechat-number")
+    def set_wechat_article_number(did: int, body: dict = Body(...)):
+        if not db.row("SELECT 1 FROM drafts WHERE id=?", (did,)):
+            raise HTTPException(404, "稿件不存在")
+        try:
+            return wechat_branding.set_number(settings, did, body.get("number"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/preview")
     def preview(body: dict = Body(...)):
@@ -846,7 +942,22 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
                 theme = validate_theme(body.get("wechat_theme", ""))
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
-            out["html"] = wechat_html(text, theme, title=str(body.get("title") or ""))
+            did = body.get("draft_id")
+            if did is not None:
+                if type(did) is not int:
+                    raise HTTPException(400, "稿件编号无效")
+                draft = db.row("SELECT platform FROM drafts WHERE id=?", (did,))
+                if not draft:
+                    raise HTTPException(404, "稿件不存在")
+            else:
+                draft = None
+            branded = platform == "wechat" and (not draft or draft["platform"] == "wechat")
+            try:
+                out["html"], out["branding"] = wechat_branding.render(settings, text, theme,
+                    title=str(body.get("title") or ""), draft_id=did) if branded else (
+                    wechat_html(text, theme, title=str(body.get("title") or "")), None)
+            except images.ImageError as exc:
+                raise HTTPException(400, str(exc)) from exc
             out["wechat_theme"] = theme
             out["layout"] = layout_info(out["html"]) if theme else None
         return out
@@ -866,6 +977,7 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
         allowed = ("x",) if draft["platform"] == "x" else ("wechat", "x_article", "zsxq")
         if target not in allowed:
             raise HTTPException(400, "这篇稿子不能发到这个平台")
+        draft = draft_workflow.reviewed_draft(did, layout=True)
         learning.record_round(did, draft["body"], "publish")
         try:
             if target == "x":
@@ -912,9 +1024,13 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
         return media_id
 
     def _push_wechat(draft: dict, override_cover: str | None) -> dict:
-        html = wechat_html(draft["body"], draft.get("wechat_theme", ""), title=draft["title"])
-        for iid in images.referenced(draft["body"]):
-            image = _body_image(iid, draft["id"])
+        html, branding = wechat_branding.render(settings, draft["body"], draft.get("wechat_theme", ""),
+                                               title=draft["title"], draft_id=draft["id"])
+        if branding and branding["needs_start_number"]:
+            raise publish.PublishError("请先在公众号排版填写并保存本篇原创编号，再推送草稿箱")
+        # Includes the account card as well as body images; upload/cache once.
+        for iid in images.referenced(html):
+            image = images.get(iid) if branding and iid == settings.wechat_branding.get("card_image_id") else _body_image(iid, draft["id"])
             cached = images.remote(iid, "wx_inline")
             if cached:
                 url = cached["url"]
@@ -1008,6 +1124,7 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
         if not draft:
             raise HTTPException(404)
         try:
+            draft = draft_workflow.reviewed_draft(did, layout=True)
             return xhs_bridge.submit(xhs_browser.payload(draft))
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
@@ -1238,17 +1355,22 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
     # ------------------------------------------------------------ settings
     @app.get("/api/settings")
     def get_settings():
-        return {"author": settings.author, "rp_id": settings.rp_id, "origins": settings.origins,
+        return {"author": settings.author, "workbench_name": settings.workbench_name, "rp_id": settings.rp_id, "origins": settings.origins,
                 "llm_backend": settings.llm_backend, "llm_model": settings.llm_model,
+                "writing_model": settings.writing_model,
                 "deepseek_routes": deepseek_api.routes(),
                 "feishu_auto_sync": settings.feishu_auto_sync, "feishu_auto_archive": settings.feishu_auto_archive,
-                "login_mode": "local" if settings.local_login else "access" if settings.access_login else "passkey", "access_emails": settings.access_emails,
+                "login_mode": "local" if settings.local_login else "access" if settings.access_login else settings.login_mode, "access_emails": settings.access_emails,
                 "x_redirect_uri": publish.x_redirect_uri(settings.origins[0]),
                 "secrets": store.present(*SECRET_KEYS), "wechat_cover": bool(store.get("wx_default_cover")),
                 "x_account": publish.x_account(store) if store.get("x_tokens") else None}
 
     @app.put("/api/settings/secrets")
     def set_secrets(body: dict = Body(...)):
+        if 'daitu_api_key' in body:
+            value=body['daitu_api_key']
+            if not isinstance(value,str) or len(value.strip())>512 or (value.strip() and (not value.strip().isascii() or any(c.isspace() for c in value.strip()))):
+                raise HTTPException(400,'代兔密钥格式不正确')
         if deepseek_api.SECRET_KEY in body:
             value = body[deepseek_api.SECRET_KEY]
             if not isinstance(value, str) or len(value.strip()) > 512 or (value.strip() and (not value.strip().isascii() or any(c.isspace() for c in value.strip()))):
@@ -1262,16 +1384,25 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
 
     @app.put("/api/settings")
     def update_settings(body: dict = Body(...)):
+        if "workbench_name" in body:
+            name = body["workbench_name"]
+            if not isinstance(name, str) or not name.strip() or len(name.strip()) > 40 or any(c in name for c in "\r\n"):
+                raise HTTPException(400, "工作台名称请填写1到40个字，不能换行")
+            body["workbench_name"] = name.strip()
         if "llm_backend" in body and body["llm_backend"] not in ("claude-code", "model-api", "deepseek-api", "codex-cli", "disabled"):
             raise HTTPException(400, "不支持的模型接入方式")
+        if settings.storage_mode=='cloud' and body.get('llm_backend') in ('codex-cli','claude-code'):
+            raise HTTPException(400,'云端文字任务请选择 DeepSeek 或已有 Claude API，无需安装本机 Codex')
         if "llm_model" in body and body["llm_model"] not in ("sonnet", "opus"):
             raise HTTPException(400, "请选择已配置的 Sonnet 或 Opus")
+        if "writing_model" in body and body["writing_model"] not in ("", *llm.WRITING_MODELS):
+            raise HTTPException(400, "请选择支持的写稿型号")
         for key in ("feishu_auto_sync", "feishu_auto_archive"):
             if key in body and not isinstance(body[key], bool):
                 raise HTTPException(400, "同步开关必须为布尔值")
         if "author" in body:
             settings.author = str(body["author"])[:16]
-        for key in ("llm_backend", "llm_model", "feishu_auto_sync", "feishu_auto_archive"):
+        for key in ("llm_backend", "llm_model", "writing_model", "workbench_name", "feishu_auto_sync", "feishu_auto_archive"):
             if key in body:
                 setattr(settings, key, body[key])
         settings.save()
@@ -1306,6 +1437,12 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
     def frontend(path: str):
         if path.startswith("api/"):
             raise HTTPException(404)
+        if settings.storage_mode=='local' and settings.cloud_url:
+            if not re.fullmatch(r'https://[a-z0-9.-]+',settings.cloud_url):raise HTTPException(503,'云端地址配置无效')
+            # One-time setup stays in the URL fragment, never in HTTP logs.
+            code=store.get('cloud_setup_code')
+            destination=settings.cloud_url+('/#/?setup='+code if code else '/')
+            return RedirectResponse(destination,status_code=302)
         target = (WEB_DIST / path).resolve()
         if path and target.is_file() and WEB_DIST.resolve() in target.parents:
             return FileResponse(target)

@@ -96,6 +96,8 @@ async def upload_image(file:UploadFile=File(...)):
 
 
 def unpack(row):
+    row['groups'] = db.rows('SELECT g.id,g.name FROM content_groups g JOIN idea_group_links l ON l.group_id=g.id WHERE l.idea_id=? ORDER BY g.created_at,g.id', (row['id'],))
+    row['group_ids'] = [g['id'] for g in row['groups']]
     for key in ('material_ids', 'benchmark_ids','image_ids','method_ids'):
         row[key] = db.loads(row.get(key), [])
     return row
@@ -109,12 +111,14 @@ def require(iid):
 
 
 def style_context(settings=None):
+    from . import ai_rules
     settings = settings or Settings.load()
     who = prompts.persona(settings)
     return {'identity': who['name']+who['identity_paren'],
             'guide': prompts.voice_guide(settings)[:6000],
             'manual': prompts.boss_manual(settings)[:3000],
-            'habits': prompts.style_lessons_text()[:6000]}
+            'habits': prompts.style_lessons_text()[:6000],
+            'working_rules':ai_rules.rule('writing')['content']}
 
 
 def defaults(idea):
@@ -167,7 +171,8 @@ def snapshot(iid, body, settings):
                 result[table][-1].update(body_hash=item['body_hash'],analysis_id=analysis['id'] if analysis else None,
                     research=db.loads(analysis['result'],{}) if analysis else {},
                     reviews=db.rows('SELECT * FROM benchmark_reviews WHERE analysis_id=?',(analysis['id'],)) if analysis else [])
-    return result
+    from .writing_sources import attach
+    return attach(result)
 
 
 def context_prompt(context, platform):
@@ -175,11 +180,18 @@ def context_prompt(context, platform):
     source = db.dumps({'selected_materials':context['materials'], 'selected_benchmarks':context['benchmarks']})
     # Material selection does not turn imported third-party stories into personal experience.
     instruction = (writing_prompt(platform, source, db.dumps(brief), brief.get('own_facts',''), style=context['style'])
+                   + '\n写作分工：所选对标文章用于参考结构、叙述节奏、开头和结尾的组织方式，不逐句照搬。'
+                   + '用户观点和个人素材决定这篇写什么；只有明确归属用户的事实、原话和经历可写成第一人称。'
+                   + '待审核、原型和计划保留原状态；用户批准收录不代表认可全部结论。'
+                   + '给Agent的整段指令或安装教程使用语言标记为prompt的Markdown围栏块，说明放在块外。'
                    + '\n图片附件（未自动识图，内容待人工核对）：'+db.dumps(context.get('images',[]))
                    + '\n本次选题：'+context['title']
                    + '\n本篇试用方法（保留原状态，不代表用户认可或验证有效）：'+db.dumps(context.get('methods',[]))
-                   + '\n以本次已选材料为主要依据；附加的历史录音参考资料可按相关性借鉴，用户明确排除的资料不引入。参考文章和导入素材中的经历，均不自动属于用户。'
+                   + '\n以本次方向、已选对标骨架与真实材料为主要依据，自动检索候选按相关性补充；用户明确排除的资料不引入。参考文章和导入素材中的经历，均不自动属于用户。'
                    + '我的观点字段为空时，不替本人确认立场。缺事实、案例或实测，放notes或comments中追问，不在正文编造。'
                    + '材料标记truncated=true表示只取得部分正文，不声称读完全文。'
                    )
-    return instruction
+    from . import ai_rules, writing_sources
+    if 'auto_sources' in context:
+        instruction += writing_sources.prompt(context)
+    return ai_rules.apply(instruction,context['style'].get('working_rules') or ai_rules.rule('writing')['content'])

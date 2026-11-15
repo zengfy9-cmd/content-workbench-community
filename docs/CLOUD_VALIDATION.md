@@ -14,7 +14,7 @@
 
 本次仍未自动操作 WorkBuddy 客户端、验证真实外部账号、调用收费模型或发布文章。全部使用空白或临时数据，没有上传维护者的正文、图片、凭据或订阅。
 
-此前 v1.0.2 的云端验收也已通过：[运行记录](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41996062481)。当前建议使用包含完整旧稿兼容的 v1.0.3。
+此前 v1.0.2 的云端验收也已通过：[运行记录](https://github.com/zengfy9-cmd/content-workbench-community/actions/runs/41996062481)。以上为旧版历史回执；新版请从 Releases 下载。
 
 ---
 

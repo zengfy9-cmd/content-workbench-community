@@ -1,0 +1,7 @@
+.model-fallback-notice {
+  position: fixed; right: 20px; bottom: 84px; z-index: 80;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  width: min(340px, calc(100vw - 32px)); padding: 14px;
+  border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow-md);
+}

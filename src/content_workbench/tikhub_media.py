@@ -7,7 +7,9 @@ from urllib.parse import urljoin,urlsplit
 import httpx
 from . import references
 
-def key():return os.environ.get('TIKHUB_API_KEY') or os.environ.get('TIKHUB API') or ''
+def key():
+    from .config import SecretStore
+    return os.environ.get('TIKHUB_API_KEY') or os.environ.get('TIKHUB API') or SecretStore().get('tikhub_api_key') or ''
 
 def walk(value):
     if isinstance(value,dict):
@@ -20,6 +22,20 @@ def select_note(data,note_id):
     matches=[node for node in walk(data) if any(str(node.get(k,''))==note_id for k in ('id','note_id','noteId')) and (isinstance(node.get('video'),dict) or isinstance(node.get('video_info_v2'),dict))]
     if not matches:raise RuntimeError('TikHub没有返回与原链接匹配的视频笔记；不会用其他笔记替代')
     return matches[0]
+
+def douyin_note(data,url):
+    wanted=re.search(r'/video/(\d+)(?:[/?#]|$)',urlsplit(url).path)
+    candidates={str(n['aweme_id']):n for n in reversed(list(walk(data.get('data',{}))))
+                if isinstance(n.get('video'),dict) and n.get('aweme_id')}
+    note=candidates.get(wanted[1]) if wanted else next(iter(candidates.values())) if len(candidates)==1 else None
+    if not note:raise RuntimeError('TikHub未返回与原链接匹配的抖音视频')
+    return note
+
+def douyin_likes(note):
+    stats=note.get('statistics')
+    count=stats.get('digg_count') if isinstance(stats,dict) else None
+    if isinstance(count,str) and count.isascii() and count.isdigit() and len(count)<=11:count=int(count)
+    return count if type(count) is int and 0<=count<=10_000_000_000 else None
 
 def resolve_xhs(url):
     for _ in range(6):
@@ -78,9 +94,7 @@ def download(url,platform,folder):
         title=note.get('title') or note.get('desc') or '小红书视频'
         author=(note.get('user') or note.get('user_info') or {}).get('nickname','')
     else:
-        candidates=[n for n in walk(data.get('data',{})) if isinstance(n.get('video'),dict) and n.get('aweme_id')]
-        if not candidates:raise RuntimeError('TikHub未返回匹配的抖音视频')
-        note=candidates[0];play=note['video'].get('play_addr') or note['video'].get('play_addr_h264') or {}
+        note=douyin_note(data,url);play=note['video'].get('play_addr') or note['video'].get('play_addr_h264') or {}
         urls=play.get('url_list') or []
         title=note.get('desc') or '抖音视频';author=(note.get('author') or {}).get('nickname','')
     urls=[u for u in urls if isinstance(u,str) and u.startswith(('http://','https://'))]

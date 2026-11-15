@@ -13,6 +13,18 @@ from pathlib import Path
 from .config import data_dir
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS mobile_cursor(chat TEXT PRIMARY KEY,stamp TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mobile_pending(mid TEXT PRIMARY KEY,content TEXT NOT NULL,stamp TEXT NOT NULL,candidate_bid INTEGER,archived_bid INTEGER,state TEXT NOT NULL DEFAULT 'pending');
+CREATE TABLE IF NOT EXISTS mobile_messages(mid TEXT PRIMARY KEY,payload TEXT NOT NULL,received_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS ai_rule_versions(id INTEGER PRIMARY KEY,kind TEXT NOT NULL,content TEXT NOT NULL,created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS ai_prompt_runs(id INTEGER PRIMARY KEY,kind TEXT NOT NULL,target_id INTEGER NOT NULL,phase TEXT NOT NULL,model TEXT NOT NULL,prompt TEXT NOT NULL,sha256 TEXT NOT NULL,created_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS mobile_captures(mid TEXT PRIMARY KEY,bid INTEGER NOT NULL,note TEXT NOT NULL,stamp TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mobile_capture_images (
+    mid TEXT NOT NULL,
+    resource_key TEXT NOT NULL,
+    image_id INTEGER NOT NULL REFERENCES images(id),
+    PRIMARY KEY(mid,resource_key)
+);
 CREATE TABLE IF NOT EXISTS credentials (
     id TEXT PRIMARY KEY,            -- base64url credential id
     public_key BLOB NOT NULL,
@@ -83,6 +95,26 @@ CREATE TABLE IF NOT EXISTS reference_highlights (
     quote TEXT NOT NULL,
     created_at REAL NOT NULL,
     UNIQUE(reference_id, start, end)
+);
+CREATE TABLE IF NOT EXISTS wechat_brand_numbers (
+    draft_id INTEGER PRIMARY KEY REFERENCES drafts(id) ON DELETE CASCADE,
+    number INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS wechat_brand_sequence (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    next_number INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS model_fallback_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER NOT NULL UNIQUE REFERENCES jobs(id),
+    state TEXT NOT NULL DEFAULT 'pending',
+    spec TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    source_backend TEXT NOT NULL,
+    source_model TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    decided_at REAL,
+    retry_job_id INTEGER REFERENCES jobs(id)
 );
 CREATE TABLE IF NOT EXISTS benchmarks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -282,6 +314,11 @@ CREATE TABLE IF NOT EXISTS intake_items (
 );
 CREATE INDEX IF NOT EXISTS intake_batch_items ON intake_items(batch_id,id);
 CREATE INDEX IF NOT EXISTS intake_fingerprint ON intake_items(fingerprint);
+CREATE TABLE IF NOT EXISTS draft_tips (
+ draft_id INTEGER NOT NULL, tip_id INTEGER NOT NULL,
+ anchor TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL,
+ PRIMARY KEY(draft_id,tip_id)
+);
 
 """
 
@@ -360,13 +397,40 @@ MIGRATIONS = {
 
 
 def migrate(conn: sqlite3.Connection) -> None:
+    conn.execute('''CREATE TABLE IF NOT EXISTS idea_group_links (
+        idea_id INTEGER NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+        group_id INTEGER NOT NULL REFERENCES content_groups(id) ON DELETE CASCADE,
+        PRIMARY KEY(idea_id,group_id))''')
     MIGRATIONS.setdefault('benchmarks', {}).update({'original_html': "TEXT NOT NULL DEFAULT ''", 'read_count': 'INTEGER', 'read_count_at': 'REAL'})
+    MIGRATIONS['benchmarks'].update({'read_count_error': "TEXT NOT NULL DEFAULT ''",
+                                   'read_count_checked_at': 'REAL', 'read_count_source': "TEXT NOT NULL DEFAULT ''"})
+    MIGRATIONS['benchmarks'].update({'like_count': 'INTEGER', 'like_count_at': 'REAL',
+                                   'like_count_source': "TEXT NOT NULL DEFAULT ''"})
+    MIGRATIONS['media_imports']['reading_kind'] = "TEXT NOT NULL DEFAULT ''"
+    MIGRATIONS['media_imports']['auto_xiaod'] = "INTEGER NOT NULL DEFAULT 0"
     for table, columns in MIGRATIONS.items():
         have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         for name, decl in columns.items():
             if name not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
     from .benchmarks import migrate_references
+    conn.execute('INSERT OR IGNORE INTO idea_group_links SELECT id,group_id FROM ideas WHERE group_id IS NOT NULL')
+    # 原创编号归作者自己定：同一编号可以出现在多篇稿子上，去掉旧库的 UNIQUE 约束。
+    for index in conn.execute("PRAGMA index_list(wechat_brand_numbers)").fetchall():
+        if not index["unique"]:
+            continue
+        columns = [row[2] for row in conn.execute(f"PRAGMA index_info({index['name']})")]
+        if columns != ["number"]:
+            continue
+        conn.execute("DROP TABLE IF EXISTS wechat_brand_numbers_old")
+        conn.execute("ALTER TABLE wechat_brand_numbers RENAME TO wechat_brand_numbers_old")
+        conn.execute("""CREATE TABLE wechat_brand_numbers (
+            draft_id INTEGER PRIMARY KEY REFERENCES drafts(id) ON DELETE CASCADE,
+            number INTEGER NOT NULL)""")
+        conn.execute("INSERT INTO wechat_brand_numbers(draft_id,number) "
+                     "SELECT draft_id,number FROM wechat_brand_numbers_old ORDER BY draft_id")
+        conn.execute("DROP TABLE wechat_brand_numbers_old")
+        break
     migrate_references(conn)
     conn.commit()
 

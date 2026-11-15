@@ -30,7 +30,7 @@ export function CommentsPanel({ draftId, threads, order, pendingSel, onClearSel,
   useEffect(() => {
     if (active == null) return
     document.querySelector(`[data-thread="${active}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [active])
+  }, [active, threads])
 
   async function add() {
     if (!text.trim()) return
@@ -41,7 +41,7 @@ export function CommentsPanel({ draftId, threads, order, pendingSel, onClearSel,
   }
 
   const todo = waiting(threads)
-  const shown = threads.filter(t => filter === 'all' || t.status === 'open')
+  const shown = threads.filter(t => filter === 'all' || (t.status === 'open'&&!t.draft_record))
     .sort((a, b) => (order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9) || a.id - b.id)
 
   return (
@@ -68,7 +68,7 @@ export function CommentsPanel({ draftId, threads, order, pendingSel, onClearSel,
 
       <div className="row">
         <div className="segmented" role="group" aria-label="筛选">
-          <button aria-pressed={filter === 'open'} onClick={() => setFilter('open')}>未解决 <span className="n">{threads.filter(t => t.status === 'open').length}</span></button>
+          <button aria-pressed={filter === 'open'} onClick={() => setFilter('open')}>未解决 <span className="n">{threads.filter(t => t.status === 'open'&&!t.draft_record).length}</span></button>
           <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>全部 <span className="n">{threads.length}</span></button>
         </div>
       </div>
@@ -84,6 +84,8 @@ function ThreadCard({ t, active, located, onActivate, onChanged }: { t: Thread; 
   const toast = useToast()
   const [reply, setReply] = useState('')
   const [open, setOpen] = useState(false)
+  const [habit,setHabit]=useState(false)
+  const [rule,setRule]=useState(t.body.slice(0,300))
   const msgs = [t, ...t.replies]
   const needsAi = waiting([t]).length > 0
   async function send() {
@@ -103,7 +105,8 @@ function ThreadCard({ t, active, located, onActivate, onChanged }: { t: Thread; 
       <button className="tq" onClick={onActivate} title={t.quote ? '在正文里定位' : undefined}>
         {t.quote ? <>「{t.quote.slice(0, 48)}{t.quote.length > 48 ? '…' : ''}」{!located && <span className="pill warn small">原文已改动</span>}</> : <span className="faint">全文</span>}
         {t.status === 'resolved' && <span className="pill ok small">已解决</span>}
-        {needsAi && <span className="pill accent small">等 AI</span>}
+        {t.draft_record && <span className="pill small">起草记录</span>}
+        {t.status === 'open' && !t.draft_record && <span className={`pill small ${needsAi?'accent':'warn'}`}>{needsAi?'等 AI 处理':'等你确认解决'}</span>}
       </button>
       {msgs.map(m => (
         <div key={m.id} className={'cm-msg ' + m.author}>
@@ -111,6 +114,7 @@ function ThreadCard({ t, active, located, onActivate, onChanged }: { t: Thread; 
           <div className="txt">{m.body}</div>
         </div>
       ))}
+      {habit&&<div className="stack"><p className="small">把要求改成以后也适用的规则；保存为候选，不立即启用。</p><textarea aria-label="长期习惯候选" className="textarea" maxLength={300} value={rule} onChange={e=>setRule(e.target.value)}/><button className="btn sm" disabled={!rule.trim()} onClick={async()=>{try{await api.post(`/api/drafts/${t.draft_id}/habit-candidates`,{comment_id:t.id,rule});setHabit(false);toast('已留为候选，请到改稿习惯确认启用')}catch(e){toast((e as Error).message,'error')}}}>保存习惯候选</button></div>}
       {open ? (
         <div className="stack" style={{ gap: 6 }}>
           <AutoTextarea className="textarea" value={reply} onChange={e => setReply(e.target.value)} placeholder="回复，比如你要补的那句话"
@@ -123,9 +127,10 @@ function ThreadCard({ t, active, located, onActivate, onChanged }: { t: Thread; 
       ) : (
         <div className="cm-acts">
           <button className="btn ghost sm" onClick={() => setOpen(true)}>回复</button>
-          {t.status === 'open'
+          {t.draft_record ? null : t.status === 'open'
             ? <button className="btn ghost sm" onClick={() => setStatus('resolved')}><Ic.Check size={13} /> 解决</button>
             : <button className="btn ghost sm" onClick={() => setStatus('open')}>重新打开</button>}
+          {t.author === 'gary' && <button className="btn ghost sm" onClick={()=>setHabit(v=>!v)}>留为改稿习惯</button>}
           {t.author === 'gary' && <button className="btn ghost sm danger" aria-label="删除批注" onClick={remove}><Ic.Trash size={13} /></button>}
         </div>
       )}

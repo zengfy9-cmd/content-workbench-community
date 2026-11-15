@@ -62,24 +62,32 @@ server.run()
         try:
             with httpx.Client(base_url=base, headers={'Origin':settings.origins[0]}, trust_env=False) as client:
                 assert client.get('/').status_code == 200
-                assert client.get('/api/drafts').json() == []
+                for empty in ('drafts','materials','benchmarks','final-drafts'):
+                    assert client.get('/api/'+empty).json()==[],empty
+                assert client.get('/api/control').json()['turns']==[]
+                assert not (Path(temporary)/'secrets.json').exists()
                 response = client.post('/api/drafts', json={'title':'安装验收临时稿','body':'只用于测试保存和重启读回。','platform':'wechat'})
                 response.raise_for_status(); did = response.json()['id']
                 image = io.BytesIO(); Image.new('RGB',(12,12),'white').save(image, format='PNG')
                 response = client.post(f'/api/drafts/{did}/images', files={'files':('test.png',image.getvalue(),'image/png')})
                 response.raise_for_status(); iid = response.json()[0]['id']
                 assert client.get(f'/api/drafts/{did}').json()['body'] == '只用于测试保存和重启读回。'
+                workflow=client.get(f'/api/drafts/{did}/workflow').json()
+                stamp=client.get(f'/api/drafts/{did}').json()['updated_at']
+                client.post(f'/api/drafts/{did}/final-copy',json={
+                    'confirm':True,'hash':workflow['body_hash'],'expected_updated_at':stamp}).raise_for_status()
                 client.post('/api/__smoke/stop').raise_for_status(); process.wait(timeout=15)
                 process = start()
                 assert client.get(f'/api/drafts/{did}').json()['title'] == '安装验收临时稿'
                 assert client.get(f'/api/images/{iid}').content == image.getvalue()
+                assert client.get(f'/api/final-drafts/{did}').json()['body']=='只用于测试保存和重启读回。'
                 response = client.delete(f'/api/drafts/{did}'); response.raise_for_status()
                 assert client.get('/api/drafts').json() == []
         finally:
             if process.poll() is None:
                 httpx.post(base + '/api/__smoke/stop', headers={'Origin':settings.origins[0]}, trust_env=False).raise_for_status()
                 process.wait(timeout=15)
-        print('PASS: blank database, frontend HTTP, draft save/reload, image upload/readback, process restart, cleanup. No model calls or platform writes.')
+        print('PASS: blank database, frontend HTTP, draft save/reload, image upload/readback, final-copy persistence, process restart, cleanup. No model calls or platform writes.')
 
 if __name__ == '__main__':
     main()

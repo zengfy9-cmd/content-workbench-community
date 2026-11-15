@@ -37,13 +37,14 @@ from webauthn.helpers.structs import (
 )
 
 from . import access, db
-from .config import Settings, clear_setup_code, ensure_setup_code
+from .config import Settings, SecretStore, clear_setup_code, ensure_setup_code
 
 COOKIE = "cw_session"
 USER_ID = b"gary-content-workbench"
 CHALLENGE_TTL = 300
 PUBLIC_API = {"/api/auth/state", "/api/auth/register/options", "/api/auth/register/verify",
-              "/api/auth/login/options", "/api/auth/login/verify"}
+              "/api/auth/login/options", "/api/auth/login/verify",
+              "/api/auth/password/register", "/api/auth/password/login"}
 
 
 def _hash(token: str) -> str:
@@ -62,6 +63,7 @@ def has_credentials(rp_id: str | None = None) -> bool:
 
 def session_valid(request: Request) -> bool:
     settings: Settings = request.app.state.settings
+    if getattr(request.state,'machine_authenticated',False):return True
     if settings.local_login:
         return local_request(request)
     if settings.access_login and getattr(request.state, "access_email", None):
@@ -211,6 +213,12 @@ class Guard(BaseHTTPMiddleware):
             oauth_return = request.method == 'GET' and request.url.path == '/scys/callback'
             if not oauth_return and (request.headers.get('sec-fetch-site') == 'cross-site' or (origin and origin not in settings.origins)):
                 return JSONResponse({"detail": "origin not allowed"}, status_code=403)
+        if settings.local_login and settings.storage_mode=='local' and settings.cloud_url and request.url.path.startswith('/api/'):
+            from .cloud_relay import forward
+            return await forward(request,settings)
+        if settings.storage_mode=='cloud':
+            given=request.headers.get('x-workbench-machine','');expected=SecretStore().get('cloud_machine_key') or ''
+            if given and expected and hmac.compare_digest(given,expected):request.state.machine_authenticated=True
         if settings.access_team:
             token = request.headers.get("cf-access-jwt-assertion", "")
             try:

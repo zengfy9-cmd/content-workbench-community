@@ -40,7 +40,7 @@ export function Login({ registered, onDone }: { registered: boolean; onDone: () 
     <div className="login-wrap">
       <div className="card login-card">
         <span className="brand-mark"><Ic.Pen size={22} /></span>
-        <h1>槐安个人内容工作台</h1>
+        <h1>catcat.内容创造工作台</h1>
         {registered ? (
           <>
             <p>用这台设备的指纹、面容或设备密码登录。</p>

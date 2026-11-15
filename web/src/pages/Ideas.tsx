@@ -26,7 +26,7 @@ export function Ideas() {
     const needle = q.trim().toLowerCase()
     return (ideas || []).filter(i =>
       (filter === 'all' || i.status === filter) &&
-      (group === 'all' || (group === 'none' ? i.group_id == null : String(i.group_id) === group)) &&
+      (group === 'all' || (group === 'none' ? !(i.group_ids?.length || i.group_id) : (i.group_ids ?? (i.group_id ? [i.group_id] : [])).includes(Number(group)))) &&
       (platform === 'all' || i.platforms.includes(platform) || (platform==='推特' && i.platforms.includes('X'))) &&
       (!needle || `${i.title} ${i.angle} ${i.audience||''} ${i.problem||''} ${i.thesis||''} ${i.available_materials||''} ${i.missing_materials||''} ${i.material_title || ''}`.toLowerCase().includes(needle)))
   }, [ideas, q, platform, filter, group])
@@ -98,7 +98,7 @@ export function IdeaCard({ idea, onChange, compact, hideSource }: { idea: Idea; 
   if (compact) {
     return (
       <div className="idea-compact">{overlays}
-        <div className="t">{idea.group_name && <IdeaLabel name={idea.group_name} />}{idea.starred ? <Ic.Star size={13} filled className="star on" /> : null} {idea.title}</div>
+        <div className="t">{(idea.groups ?? (idea.group_name ? [{id:idea.group_id,name:idea.group_name}] : [])).map(g=><IdeaLabel key={g.id} name={g.name}/>)}{idea.starred ? <Ic.Star size={13} filled className="star on" /> : null} {idea.title}</div>
         {idea.angle && <div className="a">{idea.angle}</div>}
         <div className="row" style={{ marginTop: 4 }}>{writeButtons}</div>
       </div>
@@ -108,7 +108,7 @@ export function IdeaCard({ idea, onChange, compact, hideSource }: { idea: Idea; 
   return (
     <article className="idea">{overlays}
       <div className="idea-head">
-        <h3 className="grow">{idea.group_name && <IdeaLabel name={idea.group_name} />}{idea.title}</h3>
+        <h3 className="grow">{(idea.groups ?? (idea.group_name ? [{id:idea.group_id,name:idea.group_name}] : [])).map(g=><IdeaLabel key={g.id} name={g.name}/>)}{idea.title}</h3>
         <button className={'btn ghost icon sm'} aria-label={idea.starred ? '取消星标' : '星标'} aria-pressed={!!idea.starred}
           onClick={() => patch({ starred: !idea.starred })}>
           <Ic.Star size={16} filled={!!idea.starred} className={'star' + (idea.starred ? ' on' : '')} />
@@ -151,7 +151,7 @@ export function IdeaCard({ idea, onChange, compact, hideSource }: { idea: Idea; 
         {idea.status !== 'dropped' && (
           <button className="btn ghost sm" onClick={() => patch({ status: 'dropped' }, '已移到“不要了”')}>不要了</button>
         )}
-        <ContentActions kind="ideas" id={idea.id} title={idea.title} groupId={idea.group_id} onChange={onChange} disabled={!!busy} />
+        <ContentActions kind="ideas" id={idea.id} title={idea.title} groupId={idea.group_id} groupIds={idea.group_ids} onChange={onChange} disabled={!!busy} />
       </div>
     </article>
   )

@@ -8,12 +8,15 @@ import { BenchmarkImport } from './BenchmarkImport'
 import { TagChips } from '../TagChips'
 import { TipCapture } from './ContentTips'
 
-export function ReadingMeta({ source,editable=false }: { editable?:boolean;source: { id?:number; read_count?: number | null; read_count_at?: number | null } }) {
+type ReadingSource=Partial<Pick<BenchmarkSummary,'id'|'source_platform'|'read_count'|'read_count_at'|'read_count_error'|'read_count_source'|'like_count'|'like_count_at'|'like_count_source'>>
+export function ReadingMeta({ source,editable=false }: { editable?:boolean;source: ReadingSource }) {
   const [value,setValue]=useState('');const [manual,setManual]=useState<number|null>(null);const toast=useToast()
-  useEffect(()=>{setManual(null);setValue('')},[source.id,source.read_count])
-  const count=manual??source.read_count
-  async function save(){try{await api.put(`/api/benchmarks/${source.id}`,{read_count:Number(value)});setManual(Number(value));setValue('');toast('阅读量已补录')}catch(e){toast((e as Error).message,'error')}}
-  return <div className="reading-meta">阅读量：<b>{count == null ? '暂未获取' : count.toLocaleString('zh-CN')}</b>{source.read_count_at && <span> · {new Date(source.read_count_at * 1000).toLocaleDateString('zh-CN')} 获取</span>}{editable && source.id && <details><summary>补录阅读量</summary><div className="row"><input className="input" type="number" min="0" max="10000000000" aria-label="手动补录阅读量" value={value} onChange={e=>setValue(e.target.value)}/><button className="btn sm" disabled={!/^\d+$/.test(value)} onClick={()=>void save()}>保存</button></div></details>}</div>
+  const douyin=source.source_platform==='抖音',label=douyin?'点赞数':'阅读量',field=douyin?'like_count':'read_count'
+  const original=source[field],at=source[douyin?'like_count_at':'read_count_at'],origin=source[douyin?'like_count_source':'read_count_source']
+  useEffect(()=>{setManual(null);setValue('')},[source.id,field,original])
+  const count=manual??original
+  async function save(){try{await api.put(`/api/benchmarks/${source.id}`,{[field]:Number(value)});setManual(Number(value));setValue('');toast(label+'已补录')}catch(e){toast((e as Error).message,'error')}}
+  return <div className="reading-meta">{label}：<b>{count == null ? (!douyin&&source.read_count_error ? `未获取：${source.read_count_error}` : '暂未获取') : count.toLocaleString('zh-CN')}</b>{manual!=null?<span> · 手动补录</span>:at&&<span title={origin}> · {new Date(at * 1000).toLocaleDateString('zh-CN')} 获取</span>}{editable && source.id && <details><summary>补录{label}</summary><div className="row"><input className="input" type="number" min="0" max="10000000000" aria-label={'手动补录'+label} value={value} onChange={e=>setValue(e.target.value)}/><button className="btn sm" disabled={!/^\d+$/.test(value)||Number(value)>1e10} onClick={()=>void save()}>保存</button></div></details>}</div>
 }
 
 export function ResearchArticle({ report, onLocate }: { report: ResearchReport; onLocate?: (key: string) => void }) {
@@ -79,10 +82,26 @@ export function DraftOriginal({ draftId, initialSource, source, onSource, locate
     const node=direct || candidates.filter(n=>text && normalized(n.textContent||'').includes(text)).sort((a,b)=>(a.textContent?.length||0)-(b.textContent?.length||0))[0]
     if(node) reader.current.scrollTop+=node.getBoundingClientRect().top-reader.current.getBoundingClientRect().top-16
   },[locateKey,source,raw])
+  const [ownDrafts,setOwnDrafts]=useState<{id:number;title:string;updated_at:number}[]>([]),[ownPick,setOwnPick]=useState<number|''>('')
   async function openPicker(){
     setPicking(true);setQuery('');setChecked([]);setBusy(true)
-    try {setLibrary(await api.get<BenchmarkSummary[]>('/api/benchmarks'))}
+    try {
+      const [lib,drafts]=await Promise.all([api.get<BenchmarkSummary[]>('/api/benchmarks'),api.get<{id:number;title:string;updated_at:number}[]>('/api/drafts')])
+      setLibrary(lib);setOwnDrafts(drafts.filter(d=>d.id!==draftId))
+    }
     catch(e){toast((e as Error).message,'error')}
+    finally{setBusy(false)}
+  }
+  async function addOwnDraft(){
+    if(!ownPick)return
+    setBusy(true)
+    try{
+      const d=await api.get<{title:string;body:string}>(`/api/drafts/${ownPick}`)
+      if(!(d.body||'').trim())throw new Error('这篇稿件还是空的')
+      const b=await api.post<{id:number}>('/api/benchmarks',{title:`我的另一稿：${d.title}`,body:d.body,kind:'其他',author:'我'})
+      await api.post(`/api/benchmarks/${b.id}/draft`,{draft_id:draftId})
+      await load();setSelected(b.id);setPicking(false);toast('已把自己的一篇稿子加入对标')
+    }catch(e){toast((e as Error).message,'error')}
     finally{setBusy(false)}
   }
   async function attach(ids:number[]){
@@ -115,7 +134,16 @@ export function DraftOriginal({ draftId, initialSource, source, onSource, locate
         : <BenchmarkReader source={{...source,original_html:''}} active={locateKey} onSelect={()=>{}} root={reader}/>}</>
       : <div className="card-pad muted">选择或导入对标，原文会保留在中间，右侧显示分析。</div>}
     <Dialog open={picking} title="为本篇添加对标" onClose={()=>{if(!busy)setPicking(false)}} footer={<div className="row wrap"><button className="btn" disabled={busy} onClick={()=>{setPicking(false);setAdding(true)}}>导入新原文</button><button className="btn primary" disabled={busy || !checked.length} onClick={()=>void attach(checked)}>加入本篇（{checked.length}）</button></div>}>
-      <div className="stack"><input className="input" aria-label="搜索可添加的对标" placeholder="搜索标题、作者、标签" value={query} onChange={e=>setQuery(e.target.value)}/><p className="small muted">这里只显示尚未加入本篇的文章，可以多选。</p><div className="draft-reference-picker">{candidates.map(s=><label key={s.id} className="draft-reference-choice"><input type="checkbox" disabled={busy} checked={checked.includes(s.id)} onChange={e=>setChecked(v=>e.target.checked?[...v,s.id]:v.filter(id=>id!==s.id))}/><span>{s.title}<span className="small muted">{s.author || '作者待补充'} · {s.kind}</span></span></label>)}{!candidates.length && <p className="muted">{busy?'正在读取对标库…':'没有符合条件的文章，可以导入新原文。'}</p>}</div></div>
+      <div className="stack"><div className="stack" style={{gap:6,paddingBottom:8,borderBottom:'1px solid var(--line)'}}>
+          <p className="small"><strong>从我的稿件里选</strong>　把另一稿当对标，左右对照着改</p>
+          <div className="row" style={{gap:8}}>
+            <select className="select" aria-label="选择自己的一篇稿件" value={ownPick} onChange={e=>setOwnPick(e.target.value?Number(e.target.value):'')}>
+              <option value="">选择稿件…</option>
+              {ownDrafts.map(d=><option key={d.id} value={d.id}>{d.title.slice(0,42)}</option>)}
+            </select>
+            <button className="btn" disabled={busy||!ownPick} onClick={()=>void addOwnDraft()}>加入本篇</button>
+          </div>
+        </div><input className="input" aria-label="搜索可添加的对标" placeholder="搜索标题、作者、标签" value={query} onChange={e=>setQuery(e.target.value)}/><p className="small muted">这里只显示尚未加入本篇的文章，可以多选。</p><div className="draft-reference-picker">{candidates.map(s=><label key={s.id} className="draft-reference-choice"><input type="checkbox" disabled={busy} checked={checked.includes(s.id)} onChange={e=>setChecked(v=>e.target.checked?[...v,s.id]:v.filter(id=>id!==s.id))}/><span>{s.title}<span className="small muted">{s.author || '作者待补充'} · {s.kind}</span></span></label>)}{!candidates.length && <p className="muted">{busy?'正在读取对标库…':'没有符合条件的文章，可以导入新原文。'}</p>}</div></div>
     </Dialog>
     <BenchmarkImport open={adding} onClose={()=>setAdding(false)} onChanged={()=>{}} onSaved={s=>{void attach([s.id])}}/>
   </div>

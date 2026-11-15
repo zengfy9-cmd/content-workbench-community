@@ -1,0 +1,31 @@
+import { WritingSources, type AutoSources } from './WritingSources'
+import { useEffect, useState } from 'react'
+import { api } from './api'
+import { useToast } from './ui'
+
+type Rule={id:number;content:string;created_at:number|null}
+type Rules={writing:Rule;images:Rule;flow:string[];writing_builtin:string;image_builtin:string;writing_context:{guide:string;manual:string;habits:string}}
+export function AiRules(){
+ const [data,setData]=useState<Rules|null>(null),[kind,setKind]=useState<'writing'|'images'>('writing'),[text,setText]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ const toast=useToast()
+ function load(){api.get<Rules>('/api/ai-rules').then(d=>{setData(d);setText(d[kind].content)}).catch(e=>setError(e.message))}
+ useEffect(load,[kind])
+ async function save(){if(!data)return;setBusy(true);try{const r=await api.put<Rule>(`/api/ai-rules/${kind}`,{content:text,expected_id:data[kind].id});setData({...data,[kind]:r});toast('准则已保存，下次新任务生效；历史任务保留原提示词')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+ return <section className="settings-group" id="ai-rules"><h2>AI 工作准则</h2><div className="card card-pad stack"><p className="small muted">这里的说明文档会实际带入起草或生图。已有任务保留原版本；修改后用于新任务。</p><ol className="small">{data?.flow.map(s=><li key={s}>{s}</li>)}</ol><div className="segmented"><button aria-pressed={kind==='writing'} onClick={()=>setKind('writing')}>写作准则</button><button aria-pressed={kind==='images'} onClick={()=>setKind('images')}>配图准则</button></div><textarea className="textarea" aria-label="工作准则正文" rows={10} maxLength={20000} value={text} onChange={e=>setText(e.target.value)}/><div className="actions"><button className="btn primary" disabled={!data||busy} onClick={save}>保存准则</button><a className="btn" href={`/api/ai-rules/${kind}/document`}>下载说明文档</a><span className="small muted">版本 {data?.[kind].id||'内置'}</span></div><details><summary>查看系统基础规则和已有文风说明</summary><pre className="prep-rule">{data&&(kind==='writing'?data.writing_builtin+'\n\n'+Object.entries(data.writing_context).map(([k,v])=>k+'\n'+v).join('\n\n'):data.image_builtin)}</pre></details><p className="small muted">本篇实际提示词：在起草前点“查看完整提示词”；生成后到原稿或制图任务里查看历史快照。旧任务如果没保存过，不会补造记录。</p>{error&&<p className="err" role="alert">{error}</p>}</div></section>
+}
+type Run={id:number;phase:string;model:string;prompt:string;sha256:string;created_at:number}
+export function PromptTrace({kind,id}:{kind:'writing'|'images';id:number}){
+ const [runs,setRuns]=useState<Run[]|null>(null),[error,setError]=useState('')
+ return <details onToggle={e=>{if(e.currentTarget.open)api.get<Run[]>(`/api/ai-prompts/${kind}/${id}`).then(setRuns).catch(e=>setError(e.message))}}><summary>本次完整提示词与模型 · 实际发送记录</summary>{runs?.length===0&&<p className="small muted">此旧任务没有保存完整提示词；不会用当前规则冒充当时版本。</p>}{runs?.map(r=><div key={r.id}><p className="small">{r.phase} · {r.model} · {new Date(r.created_at*1000).toLocaleString()}</p><button className="btn sm" onClick={()=>void navigator.clipboard.writeText(r.prompt)}>复制完整提示词</button><pre className="prep-rule">{r.prompt}</pre><p className="small muted">版本校验：{r.sha256.slice(0,16)}</p></div>)}{error&&<p className="err">{error}</p>}</details>
+}
+export function PromptPreview({url,body}:{url:string;body:()=>object}){
+ const [text,setText]=useState(''),[sources,setSources]=useState<AutoSources>(),[error,setError]=useState(''),[busy,setBusy]=useState(false)
+ return <div><button type="button" className="btn sm" disabled={busy} onClick={async()=>{setBusy(true);setError('');try{const r=await api.post<{prompt:string;context?:{auto_sources?:AutoSources}}>(url,body());setText(r.prompt);setSources(r.context?.auto_sources)}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}>查看完整提示词（不调用模型）</button>{text&&<WritingSources sources={sources}/ >}{text&&<details open><summary>本次输入的提示词预览</summary><button type="button" className="btn sm" onClick={()=>void navigator.clipboard.writeText(text)}>复制提示词</button><pre className="prep-rule">{text}</pre></details>}{error&&<p className="err">{error}</p>}</div>
+}
+
+export function ImageApiSettings(){
+ const [base,setBase]=useState('https://api.daitu.cc/v1'),[model,setModel]=useState('gpt-image-2'),[key,setKey]=useState(''),[hasKey,setHasKey]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[models,setModels]=useState<string[]>([])
+ const toast=useToast()
+ useEffect(()=>{api.get<{base:string;model:string;has_key:boolean}>('/api/image-api/settings').then(d=>{setBase(d.base);setModel(d.model);setHasKey(d.has_key)}).catch(e=>setError(e.message))},[])
+ return <section className="settings-group" id="image-api"><h2>代兔／兼容接口生图</h2><div className="card card-pad stack"><p className="small muted">独立生图 Key：{hasKey?'已保存':'未配置'}。在制图时选择 API 才使用此额度，保存或查询模型不会生成图片。</p><label className="field"><span>生图 API Key</span><input className="input" type="password" autoComplete="off" aria-label="生图 API Key" placeholder={hasKey?'已保存，填入新 Key 可替换':'粘贴完整生图 Key'} value={key} onChange={e=>setKey(e.target.value)}/></label><label className="field"><span>接口地址</span><input className="input" value={base} onChange={e=>setBase(e.target.value)}/></label><label className="field"><span>生图模型</span><input className="input" list="image-models" value={model} onChange={e=>setModel(e.target.value)}/><datalist id="image-models">{models.map(m=><option key={m} value={m}/>)}</datalist></label><div className="actions"><button className="btn primary" disabled={busy||!base||!model} onClick={async()=>{setBusy(true);setError('');try{const r=await api.put<{has_key:boolean}>('/api/image-api/settings',{base,model,...(key?{key}:{})});setHasKey(r.has_key);setKey('');toast('生图接口已保存，未调用模型')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}>保存生图接口</button><button className="btn" disabled={!hasKey||busy} onClick={async()=>{setBusy(true);try{const r=await api.get<{models:string[];listed:boolean}>('/api/image-api/models');setModels(r.models);toast(r.listed?'配置型号已列出；还需实际生图验证':'当前 Key 未列出配置型号，请选择可用型号')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}>查询可用模型</button></div><p className="small muted">使用参考图编辑接口保持自选角色身份；供应商不支持参考图时显示错误，不丢弃参考图改成盲生图。</p>{error&&<p className="err" role="alert">{error}</p>}</div></section>
+}

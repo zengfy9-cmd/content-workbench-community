@@ -27,10 +27,17 @@ export function BenchmarkReader({ source, active, onSelect, root }: {
     if ((e.key === 'Enter' || e.key === ' ') && (e.target as HTMLElement).matches('[data-bm-key]')) { e.preventDefault(); select(e.target) }
   }}>
     {source.url && <a className="small" href={source.url} target="_blank" rel="noopener noreferrer">打开原始来源</a>}
-    {source.media_id && <a className="media-source-link" href={`#/imports/${source.media_id}`}>{source.extraction_only?'原始文件、转写与音频':'小D整理稿 · 查看原始转写与音频'}</a>}
+    {source.media_id && <a className="media-source-link" href={`#/imports/${source.media_id}`}>查看原始转写、音频与处理记录</a>}
     <h1>{source.title}</h1>
+    <p className="small muted">来源：{source.source_platform || '原平台待确认'}{source.collection_channel && ` · 收集：${source.collection_channel}`}</p>
     <p className="small muted">{source.author || '作者待补充'} · {source.kind} · {source.passages.length} 段</p>
     <ReadingMeta source={source} editable/><TagChips tags={source.tags} />
+    {!!source.mobile_notes?.length && <section className="benchmark-capture-notes" aria-label="收藏时我的判断">
+      <h2>收藏时我的判断</h2>
+      {source.mobile_notes.map((note,index)=><div className="benchmark-capture-note" key={index}>
+        <span className="small muted">{note.stamp} · 飞书原话</span><p>{note.note}</p>
+      </div>)}
+    </section>}
     <div className="row wrap" style={{position:'sticky',top:0,zIndex:2,background:'var(--surface)',padding:'8px 0'}}><button className="btn primary sm" disabled={!quote||quote.length>1800} onMouseDown={e=>e.preventDefault()} onClick={()=>setMaking(true)}>拿来做选题</button><span className="small muted">{quote?`已选 ${quote.length} 字${quote.length>1800?'，请选择1800字以内':''}`:'先在原文中选中有用的一段'}</span></div>
     {making&&<BenchmarkIdea source={source} quote={quote} onClose={()=>setMaking(false)}/>}
     {source.original_html ? <div className="source-preserved" dangerouslySetInnerHTML={{__html:source.original_html}}/> : source.stale

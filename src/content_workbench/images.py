@@ -34,7 +34,7 @@ def images_dir() -> Path:
     return path
 
 
-def save(draft_id: int, name: str, data: bytes) -> dict:
+def save(draft_id: int | None, name: str, data: bytes) -> dict:
     if len(data) > MAX_UPLOAD:
         raise ImageError("图片太大了，单张不超过 20MB")
     try:

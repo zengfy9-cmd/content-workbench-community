@@ -92,7 +92,9 @@ def _fix_pairs(line: str, delim: str) -> str:
     punctuation just outside the pair; it reads the same and parses everywhere."""
     pos, i = [], 0
     while (j := line.find(delim, i)) >= 0:
-        pos.append(j)
+        prefix = line[:j]
+        if (len(prefix) - len(prefix.rstrip('\\'))) % 2 == 0:
+            pos.append(j)
         i = j + len(delim)
     if len(pos) < 2:
         return line
@@ -102,13 +104,17 @@ def _fix_pairs(line: str, delim: str) -> str:
         inner = line[o + n:c]
         before = line[o - 1] if o > 0 else " "
         after = line[c + n] if c + n < len(line) else " "
-        lead = trail = ""
-        if not before.isspace() and before not in PUNCT:
+        # CommonMark disallows whitespace next to the inner delimiter edge.
+        # Move those spaces outside the mark without deleting the author's text.
+        lead = inner[:len(inner) - len(inner.lstrip())]
+        trail = inner[len(inner.rstrip()):]
+        inner = inner.strip()
+        if not lead and not before.isspace() and before not in PUNCT:
             k = 0
             while k < len(inner) and inner[k] in PUNCT:
                 k += 1
             lead, inner = inner[:k], inner[k:]
-        if not after.isspace() and after not in PUNCT:
+        if not trail and not after.isspace() and after not in PUNCT:
             k = len(inner)
             while k > 0 and inner[k - 1] in PUNCT:
                 k -= 1
@@ -157,7 +163,7 @@ def markdown_parser() -> MarkdownIt:
     md.core.ruler.before('inline', 'legacy_editor_breaks', legacy_editor_breaks)
     def alignment(state,start,end,silent):
         marker = state.src[state.bMarks[start]+state.tShift[start]:state.eMarks[start]].strip()
-        if marker not in (':::center', ':::left'):
+        if marker not in (':::center', ':::left', ':::center small-blue'):
             return False
         last=start+1
         while last<end and state.src[state.bMarks[last]+state.tShift[last]:state.eMarks[last]].strip()!=':::':
@@ -175,8 +181,12 @@ def markdown_parser() -> MarkdownIt:
             state.lineMax = limit
         for token in state.tokens[first:]:
             if token.type in ('paragraph_open', 'heading_open'):
-                token.attrSet('style', f'text-align:{marker[3:]}')
-                token.attrSet('data-workbench-align', marker[3:])
+                align = marker[3:].split()[0]
+                token.attrSet('style', f'text-align:{align}')
+                token.attrSet('data-workbench-align', align)
+                if marker == ':::center small-blue':
+                    token.attrSet('style', 'text-align:center;font-size:12px!important;color:#1677ff!important')
+                    token.attrSet('data-workbench-note', 'small-blue')
         state.line=last+1
         return True
     md.block.ruler.before('fence','alignment',alignment)
@@ -217,7 +227,7 @@ _STYLES = {
 
 def wechat_html(markdown: str, theme: str = "", *, title: str = "") -> str:
     """Render Markdown to HTML with inline styles (公众号 drops <style> blocks)."""
-    rendered = _md.render(markdown)
+    rendered = _md.render(normalize_emphasis(markdown))
     if theme:
         from .wechat_layout import render
         return render(rendered, theme, title=title)

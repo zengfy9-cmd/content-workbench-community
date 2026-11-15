@@ -17,7 +17,7 @@ export const ReviewIssues=Extension.create({
       return next||old
     }},view:()=>({update:(view,previous)=>{const next=issueKey.getState(view.state)||[];if(next!==issueKey.getState(previous))this.options.onChange(next)}}),props:{decorations(state){
       const marks:Decoration[]=[]
-      for(const range of locate(state.doc,issueKey.getState(state)||[]).values())if(range)marks.push(Decoration.inline(range[0],range[1],{class:'review-issue',title:'待核实／待修改（仅本机审核标记，不发布）'}))
+      for(const [id,range] of locate(state.doc,issueKey.getState(state)||[]))if(range)marks.push(Decoration.inline(range[0],range[1],{class:'review-issue','data-issue-id':String(id),title:'待核实／待修改（仅本机审核标记，不发布）'}))
       return DecorationSet.create(state.doc,marks)
     }}})]
   }

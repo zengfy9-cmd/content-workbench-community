@@ -58,7 +58,9 @@ def register(app):
         conn.execute("UPDATE codex_tasks SET state='interrupted',error='服务已重启，请先读取原任务结果；没有重新生成' WHERE state='running'")
 
     @app.get('/api/codex/status')
-    def status(): return codex_native.status()
+    def status():
+        from . import native_gateway
+        return native_gateway.health() if native_gateway.enabled() else codex_native.status()
 
     @app.get('/api/codex/tasks')
     def tasks():

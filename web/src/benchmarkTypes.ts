@@ -4,8 +4,10 @@ export type BenchmarkReview = { analysis_id: number; paragraph_key: string; note
 export type ResearchMetadata={depth:string;model:string;backend?:string;origin?:string;rule_version:string;rule_hash?:string;rules?:string}
 export type BasicResearch={thesis:string;audience:string;hook:string;structure:string;techniques:string;evidence:string;further_research:string;basis:{field:string;paragraph_key:string;quote:string}[]}
 export type BenchmarkSummary = {
+  media_state?:string;media_error?:string;mobile?:boolean; collection_channel?:string; mobile_note_count?:number; mobile_note_preview?:string; mobile_notes?:{note:string;stamp:string}[];
   extraction_only?:number; media_id?: number | null; source_platform?:string;source_kind?:string;target_platforms?:string[]
-  read_count?: number | null; read_count_at?: number | null; original_html?: string
+  read_count?: number | null; read_count_at?: number | null; read_count_error?:string; read_count_source?:string; original_html?: string
+  like_count?:number|null;like_count_at?:number|null;like_count_source?:string;reading_kind?:'paragraphs'|'reviewed-copy'|'xiaod'|''
   id: number; title: string; url: string; author: string; kind: string; tags: string[]; archived: number
   analysis_state: 'idle' | 'queued' | 'running' | 'done' | 'failed' | 'paused'; analysis_error: string | null
   current_analysis_id: number | null; created_at: number; updated_at: number; preview: string

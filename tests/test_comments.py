@@ -68,7 +68,7 @@ def test_revise_applies_answers_and_records_the_round(monkeypatch):
     assert d["status"] == "draft" and "欢迎评论区聊聊" in d["body"] and "【" not in d["body"]
     assert json.loads(d["last_revision"])["summary"] == "加了结尾号召" and info["answered"] == 1
     t = {x["id"]: x for x in comments.threads(did)}
-    assert t[tid]["status"] == "resolved" and t[tid]["replies"][0]["author"] == "ai"
+    assert t[tid]["status"] == "open" and t[tid]["replies"][0]["author"] == "ai"
     assert any(x["body"] == "这里要不要放数字？" for x in t.values())
     rounds = db.rows("SELECT * FROM edit_rounds WHERE draft_id=?", (did,))
     assert len(rounds) == 1 and rounds[0]["trigger"] == "before-ai"
@@ -105,7 +105,7 @@ def test_rounds_one_per_ai_version_and_learning(monkeypatch):
     r1 = learning.record_round(did, "这个问题挺有意思。\n\n第二段。", "idle")
     r2 = learning.record_round(did, "这个问题挺有意思的。\n\n第二段。", "publish")
     assert r1 == r2 and len(learning.pending_rounds()) == 1
-    learning.save({"lessons": [{"id": "g1", "rule": "署名用 Gary曹淦", "source": "gary", "enabled": True}]})
+    learning.save({"lessons": [{"id": "g1", "rule": "署名用 示例署名", "source": "gary", "enabled": True}]})
 
     def fake(prompt, timeout=600, tools=None, max_turns=2, *, task, json_output):
         assert task == "analyze" and json_output
@@ -117,13 +117,13 @@ def test_rounds_one_per_ai_version_and_learning(monkeypatch):
     out = learning.learn()
     assert out["lessons"] == 2 and learning.pending_rounds() == []
     text = learning.lessons_prompt()
-    assert "开头不用" not in text and "署名用 Gary曹淦" in text
+    assert "开头不用" not in text and "署名用 示例署名" in text
     state = c.get("/api/learning").json()
     assert len(state["lessons"]) == 2 and state["rounds"][0]["draft_id"] == did
     lessons = [dict(l, enabled=(l["id"] != "g1"), reviewed=True) for l in state["lessons"]]
     c.put("/api/learning/lessons", json={"lessons": lessons + [{"rule": "少用分号"}]}, headers=H)
     text = learning.lessons_prompt()
-    assert "少用分号" in text and "署名用 Gary曹淦" not in text and "开头不用" in text
+    assert "少用分号" in text and "署名用 示例署名" not in text and "开头不用" in text
 
 
 def test_title_change_is_part_of_the_round_and_stale_saves_cannot_restore_notes():

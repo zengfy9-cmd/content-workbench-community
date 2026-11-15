@@ -96,6 +96,8 @@ def test_preview_and_wechat_payload_use_identical_theme_html(monkeypatch):
     sent = {}
     monkeypatch.setattr(publish, "wx_draft", lambda *args, **kwargs: sent.update(kwargs) or {"media_id": "LOCAL_TEST_ONLY"})
     # No real account, API upload, model or publication is used by this test.
+    from review_helpers import reviewed
+    reviewed(c,did)
     r = c.post(f"/api/drafts/{did}/publish", json={"confirm": True, "target": "wechat"}, headers=H)
     assert r.status_code == 200, r.text
     assert sent["html"] == preview.json()["html"]
@@ -157,6 +159,8 @@ def test_plain_structure_is_preview_only_and_matches_the_publish_payload(monkeyp
     assert "<script>" not in preview["html"]
     sent = {}
     monkeypatch.setattr(publish, "wx_draft", lambda *args, **kwargs: sent.update(kwargs) or {"media_id": "LOCAL_TEST_ONLY"})
+    from review_helpers import reviewed
+    reviewed(c,did)
     assert c.post(f"/api/drafts/{did}/publish", json={"confirm": True, "target": "wechat"}, headers=H).status_code == 200
     assert sent["html"] == preview["html"]
     draft = c.get(f"/api/drafts/{did}").json()
