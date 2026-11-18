@@ -5,8 +5,10 @@ import { go } from '../App'
 import { usePoll, useToast } from '../ui'
 import { PlanDialog } from './WritingPlans'
 
-type Source = { id: number; kind: string; title: string; excerpt?: string }
-type Turn = { id: number; images?: number[]; message: string; answer: string; state: string; error: string; context: { mode?: string; related?: Source[] } }
+type Source = { id: number; kind: string; title: string; excerpt?: string; quote_label?:string; organized_excerpt?:string; judgment?:string; location?:string; media_id?:number; collected_at?:number }
+type SearchMode = 'quotes'|'today'|'final'
+type Reply = { answer:string; context:{mode?:string;related?:Source[]} }
+type Turn = Reply & { id: number; images?: number[]; message: string; state: string; error: string }
 type Data = { turns: Turn[]; overview: {
   plans: { id: number; title: string; day: string; draft_id: number | null }[]
   sources: { id: number; title: string; current_analysis_id: number | null }[]
@@ -22,24 +24,32 @@ function sourceHref(source: Source) {
   return `#/${source.kind}/${source.id}`
 }
 
-function Answer({ turn }: { turn: Turn }) {
+function Answer({ turn, onRetry }: { turn: Reply & {state?:string;error?:string};onRetry?:()=>void }) {
   const sources = turn.context.related || []
   const quotes = turn.context.mode === 'quotes'
   const final = turn.context.mode === 'final'
-  const pending = ['queued', 'running'].includes(turn.state)
+  const pending = ['queued', 'running'].includes(turn.state||'')
   return <>
     <div className="control-answer">
       {turn.answer && quotes
         ? <><p>{turn.answer}</p>{sources.map(source => <figure className="control-quote" key={source.id}>
-            <blockquote>{source.excerpt}</blockquote>
-            <figcaption><a href={sourceHref(source)} title={source.title}>素材 #{source.id}</a></figcaption>
+            <strong>{source.title||'未命名素材'}</strong>
+            {source.excerpt ? <><div className="small muted">{source.quote_label||'原记录中的摘录'}</div><blockquote>{source.excerpt}</blockquote></>
+              : <p className="small muted">原文没有命中该词，可打开来源核对。</p>}
+            {source.organized_excerpt&&<p><strong>整理稿摘录（非原话）：</strong>{source.organized_excerpt}</p>}
+            <p className="small"><strong>我的判断：</strong>{source.judgment||'未记录'}</p>
+            <figcaption>{source.location&&<span>来源：{source.location} · </span>}{source.collected_at&&<span>收集于 {new Date(source.collected_at*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})} · </span>}
+              <a href={sourceHref(source)} title={source.title}>素材 #{source.id}</a>
+              {source.media_id&&<> · <a href={`#/imports/${source.media_id}`}>打开导入记录</a></>}
+            </figcaption>
           </figure>)}</>
         : turn.answer && final
           ? <><p>{turn.answer}</p>{!!sources.length && <ul>{sources.map(source =>
               <li key={source.id}><a href={sourceHref(source)}>{source.title || '未命名成稿'}</a></li>)}</ul>}</>
           : turn.answer && !['ideas','today'].includes(turn.context.mode || '')
           ? <div className="control-markdown" dangerouslySetInnerHTML={{ __html: markdown.render(turn.answer) }} />
-          : turn.answer || (pending ? '正在处理…' : turn.error || '没有收到成功结果')}
+          : turn.answer ? <p style={{whiteSpace:'pre-line'}}>{turn.answer}</p> : pending ? '正在处理…' : turn.error || '没有收到成功结果'}
+      {!sources.length&&(quotes||final)&&onRetry&&<button type="button" className="btn sm" onClick={onRetry}>重新查询</button>}
     </div>
     {!!sources.length && !quotes && !final && !pending && <details className="control-sources">
       <summary>来源</summary>
@@ -69,6 +79,31 @@ export function ControlCenter() {
   const [pictures, setPictures] = useState<Screenshot[]>([])
   const [reading, setReading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const searchInput=useRef<HTMLInputElement>(null)
+  const searchId=useRef(0)
+  const [searchMode,setSearchMode]=useState<SearchMode|null>(null)
+  const [keyword,setKeyword]=useState('')
+  const [searchBusy,setSearchBusy]=useState(false)
+  const [searchError,setSearchError]=useState('')
+  const [lookup,setLookup]=useState<Reply|null>(null)
+  async function quickSearch(mode:SearchMode,q=''){
+    const id=++searchId.current
+    setSearchBusy(true);setSearchError('');setLookup(null)
+    try{
+      const answer=await api.get<Reply>('/api/control/search?'+new URLSearchParams({mode,q:q.trim()}))
+      if(id===searchId.current)setLookup(answer)
+    }catch(e){if(id===searchId.current)setSearchError((e as Error).message)}
+    finally{if(id===searchId.current)setSearchBusy(false)}
+  }
+  function choose(mode:SearchMode){
+    searchId.current++
+    setSearchBusy(false);setSearchMode(mode);setKeyword('');setLookup(null);setSearchError('')
+    if(mode==='today')void quickSearch(mode)
+    else window.requestAnimationFrame(()=>searchInput.current?.focus())
+  }
+  function retry(mode?:string){
+    if(mode==='quotes'||mode==='final'){choose(mode);searchInput.current?.scrollIntoView({block:'nearest'})}
+  }
   async function attach(files: File[]) {
     if (busy || reading || !files.length) return
     if (files.length + pictures.length > 2) { toast('每条消息最多放 2 张截图','error'); return }
@@ -119,7 +154,21 @@ export function ControlCenter() {
         {data?.turns.map(turn => <article key={turn.id} className="control-turn"><div className="control-user">{turn.message && <div>{turn.message}</div>}{!!turn.images?.length && <div className="control-pictures">{turn.images.map((index) => {
           const url=`/api/control/${turn.id}/images/${index}`
           return <a key={index} href={url} target="_blank" rel="noreferrer"><img src={url} alt={`已发送的截图 ${index}`} loading="lazy" /></a>
-        })}</div>}</div><Answer turn={turn} /></article>)}
+        })}</div>}</div><Answer turn={turn} onRetry={()=>retry(turn.context.mode)} /></article>)}
+        <section className="control-composer" aria-label="资料快捷查询">
+          <div className="row wrap">
+            {([['quotes','查素材原话'],['today','今天的任务'],['final','查已确认成稿']] as const).map(([mode,label])=>
+              <button key={mode} type="button" className={'btn sm'+(searchMode===mode?' primary':'')} aria-pressed={searchMode===mode} onClick={()=>choose(mode)}>{label}</button>)}
+          </div>
+          {(searchMode==='quotes'||searchMode==='final')&&<form className="row wrap" onSubmit={e=>{e.preventDefault();void quickSearch(searchMode,keyword)}}>
+            <input className="input grow" ref={searchInput} value={keyword} maxLength={300} onChange={e=>setKeyword(e.target.value)}
+              aria-label={searchMode==='quotes'?'素材关键词':'成稿标题关键词'} placeholder={searchMode==='quotes'?'输入原话里的关键词':'输入标题关键词，留空显示最近成稿'}/>
+            <button className="btn sm" disabled={searchBusy||(searchMode==='quotes'&&!keyword.trim())}>查询</button>
+          </form>}
+          {searchBusy&&<p role="status">正在查资料…</p>}
+          {searchError&&<p role="alert" className="callout">{searchError}</p>}
+          {lookup&&<div aria-live="polite"><Answer turn={lookup} onRetry={()=>retry(lookup.context.mode)}/></div>}
+        </section>
         <form className="control-composer" onSubmit={e => { e.preventDefault(); void send() }}>
           <label htmlFor="control-text">交代任务</label>
           <textarea id="control-text" className="textarea" value={text} maxLength={4000} onChange={e => { setText(e.target.value); setKey(crypto.randomUUID()) }} onPaste={paste} disabled={busy} rows={2} placeholder="输入问题，或直接 Ctrl+V 粘贴截图" />

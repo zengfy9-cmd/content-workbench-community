@@ -67,6 +67,9 @@ def create_app(settings: Settings | None = None, start_jobs: bool = True) -> Fas
     video_research.setup()
     app.include_router(video_research.router)
     app.include_router(workspace_features.router)
+    from . import screenshot_studio
+    screenshot_studio.setup()
+    app.include_router(screenshot_studio.router)
     if not auth.has_credentials(settings.rp_id) and not password_auth.registered():
         ensure_setup_code()
     if start_jobs and not (settings.cloud_url and settings.storage_mode=='local'):

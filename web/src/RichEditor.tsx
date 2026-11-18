@@ -70,11 +70,11 @@ md.core.ruler.before('text_join','workbench_highlight',state=>{
   }
 })
 
-export function markdownToHtml(markdown: string): string {
+export function markdownToHtml(markdown: string, keepBreaks = false): string {
   // the title is its own field, so the body's top level is ##
   const tokens = md.parse(normalizeEmphasis(markdown), {})
   for (const token of tokens) if (token.tag === 'h1') token.tag = 'h2'
-  return md.renderer.render(tokens, md.options, {})
+  return md.renderer.render(tokens, keepBreaks ? {...md.options, breaks:true} : md.options, {})
 }
 
 /* Same rule as textutil.normalize_emphasis on the server: CommonMark won't close

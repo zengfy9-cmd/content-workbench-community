@@ -60,8 +60,10 @@ def test_screenshot_style_quote_search_reads_actual_hit_and_skips_model():
  row=_send(c,'上下文。我的素材里面有这个词的句子给我调出来')
  assert row['state']=='done' and row['prompt']==''
  assert '找到 1 条' in row['answer']
- assert db.loads(row['context'],{})['related'] == [
-     {'id':mid,'title':'通用笔记','kind':'materials','excerpt':'上下文就是打通数据，模型更新迭代，你也能更新。'}]
+ source=db.loads(row['context'],{})['related'][0]
+ assert source['id']==mid and source['title']=='通用笔记' and source['kind']=='materials'
+ assert source['excerpt']=='上下文就是打通数据，模型更新迭代，你也能更新。'
+ assert source['location']=='手记' and source['collected_at']>0 and not source['judgment']
  assert '没找到' in _send(c,'查素材里含「没出现过的词」的原话')['answer']
  assert not db.rows("SELECT 1 FROM jobs WHERE kind='control_chat'")
 

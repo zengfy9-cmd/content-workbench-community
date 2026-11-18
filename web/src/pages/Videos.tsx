@@ -6,7 +6,7 @@ import { fmtDur } from './Video'
 import { XiloHandoff } from '../XiloHandoff'
 import * as Ic from '../icons'
 
-const started = (r: VideoOverview) => r.scenes > 0 || !!r.status || !!r.video
+const started = (r: VideoOverview) => r.scenes > 0 || !!(r.planned_at || r.status || r.video || r.error)
 
 function where(r: VideoOverview): { text: string; tone?: 'accent' | 'ok' | 'warn' | 'danger' } {
   if (r.status === 'planning') return { text: '正在写脚本', tone: 'accent' }
@@ -17,21 +17,20 @@ function where(r: VideoOverview): { text: string; tone?: 'accent' | 'ok' | 'warn
   return { text: '还没出片' }
 }
 
-/** Every long-form draft's video: the ones under way first, then drafts that could become one. */
+/** Keep existing projects accessible while new production starts from a draft handoff. */
 export function Videos() {
   const toast = useToast()
   const [rows, setRows] = useState<VideoOverview[] | null>(null)
   usePoll(() => { api.get<VideoOverview[]>('/api/videos').then(setRows).catch(e => toast((e as Error).message, 'error')) }, 5000)
 
   const made = (rows || []).filter(started)
-  const ready = (rows || []).filter(r => !started(r) && r.has_body).slice(0, 12)
 
   return (
     <div className="page narrow">
       <div className="page-head">
         <div>
-          <h1>视频</h1>
-          <p>剪真人口播、用旁白做不露脸视频，或接续已有的长文转视频项目。</p>
+          <h1>旧视频项目</h1>
+          <p>查看以前的长文转视频项目。新视频从稿件或成稿交给本机 Codex。</p>
         </div>
       </div>
 
@@ -39,8 +38,8 @@ export function Videos() {
 
       {rows === null ? (
         <div className="card stack card-pad">{[0, 1, 2].map(i => <div key={i} className="skeleton" style={{ height: 52 }} />)}</div>
-      ) : !made.length && !ready.length ? (
-        <div className="card"><Empty icon={<Ic.Film />} title="还没有能做成视频的长文">先在“稿件”里写一篇长文，写好了这里就能做成视频。</Empty></div>
+      ) : !made.length ? (
+        <div className="card"><Empty icon={<Ic.Film />} title="没有旧视频项目"><a href="#/final-drafts">打开成稿箱</a></Empty></div>
       ) : null}
 
       {made.length > 0 && (
@@ -74,23 +73,6 @@ export function Videos() {
         </section>
       )}
 
-      {ready.length > 0 && (
-        <section className="vlist">
-          <h2 className="section-title">可以做成视频的长文</h2>
-          <div className="card list-rows">
-            {ready.map(r => (
-              <button key={r.id} className="list-row" onClick={() => go(`videos/${r.id}`)}>
-                <span className="vlist-thumb"><Ic.Doc size={16} /></span>
-                <div className="grow">
-                  <div className="t">{r.title || '（还没有标题）'}</div>
-                  <div className="sub">{r.draft_status === 'published' ? '已发出' : '在改'} · {ago(r.updated_at)} 改过</div>
-                </div>
-                <span className="btn sm">做成视频 <Ic.Right size={13} /></span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   )
 }

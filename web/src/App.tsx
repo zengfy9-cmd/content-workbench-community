@@ -23,6 +23,8 @@ import { ContentTips } from './pages/ContentTips'
 import { CodexTasks } from './pages/CodexTasks'
 import { ArticleImages } from './pages/ArticleImages'
 import { ModelFallbackNotice } from './ModelFallbackNotice'
+import { ScreenshotStudio } from './pages/ScreenshotStudio'
+import { Composer } from './pages/Composer'
 
 type Route = { page: string; id?: number; query: URLSearchParams }
 
@@ -38,10 +40,9 @@ export function go(path: string) {
   window.location.hash = '/' + path
 }
 
-/** Jump to the composer on the Today page and focus it. */
+/** Open the note composer over the current page. */
 export function startCapture() {
-  if (parseHash().page !== 'today') go('today')
-  window.setTimeout(() => window.dispatchEvent(new Event('cw-capture')), 60)
+  window.dispatchEvent(new Event('cw-capture'))
 }
 
 type NavItem = { key: string; label: string; icon: ReactNode; count?: number; hot?: boolean }
@@ -54,6 +55,7 @@ function Root() {
   const [auth, setAuth] = useState<{ registered: boolean; logged_in: boolean; login_mode?:string } | null>(null)
   const [route, setRoute] = useState<Route>(parseHash())
   const [status, setStatus] = useState<Status | null>(null)
+  const [captureOpen, setCaptureOpen] = useState(false)
   const [renameOpen,setRenameOpen] = useState(false)
   const [newName,setNewName] = useState('')
   const [nameError,setNameError] = useState('')
@@ -81,9 +83,11 @@ function Root() {
   useEffect(() => {
     refreshAuth()
     const onHash = () => { setRoute(parseHash()); window.scrollTo(0, 0) }
+    const onCapture = () => setCaptureOpen(true)
     window.addEventListener('hashchange', onHash)
     window.addEventListener('cw-logged-out', refreshAuth)
-    return () => { window.removeEventListener('hashchange', onHash); window.removeEventListener('cw-logged-out', refreshAuth) }
+    window.addEventListener('cw-capture', onCapture)
+    return () => { window.removeEventListener('hashchange', onHash); window.removeEventListener('cw-logged-out', refreshAuth); window.removeEventListener('cw-capture', onCapture) }
   }, [refreshAuth])
 
   useEffect(() => {
@@ -108,6 +112,7 @@ function Root() {
     { key: 'drafts', label: '稿件', icon: <Ic.Doc />, count: status?.counts.drafts },
     { key: 'final-drafts', label: '成稿箱', icon: <Ic.Inbox /> },
     { key: 'illustrations', label: '制图工作台', icon: <Ic.Image /> },
+    { key: 'screenshots', label: '截图工作室', icon: <Ic.Image /> },
     { key: 'tips', label: '内容灵感技巧', icon: <Ic.Bulb /> },
     { key: 'videos', label: '视频制作', icon: <Ic.Film /> },
     { key: 'published', label: '发布记录', icon: <Ic.Send /> },
@@ -115,14 +120,15 @@ function Root() {
   ]
 
   const primaryNav = nav.slice(0, 7)
-  const toolsNav = nav.slice(7)
+  const toolsNav = nav.filter(n => ['illustrations','screenshots'].includes(n.key))
 
   let body: ReactNode
-  const fullBleed = ((route.page === 'drafts' || route.page === 'videos') && !!route.id) || route.page === 'materials' || route.page === 'benchmarks'
+  const fullBleed = ((route.page === 'drafts' || route.page === 'videos') && !!route.id) || route.page === 'materials' || route.page === 'benchmarks' || route.page === 'screenshots'
   const studyId = Number(route.query.get('study')) || undefined
   const targetDraft = Number(route.query.get('draft')) || undefined
   if (route.page === 'drafts' && route.id) body = <Editor key={route.id} id={route.id} status={status} studyId={studyId} studyKey={route.query.get('passage') || undefined} />
   else if (route.page === 'control') body = <ControlCenter />
+  else if (route.page === 'screenshots') body = <ScreenshotStudio query={route.query}/>
   else if (route.page === 'benchmarks') body = <Benchmarks id={route.id} targetDraft={targetDraft} initialAnalysis={Number(route.query.get('analysis'))||undefined} />
   else if (route.page === 'videos' && route.id) body = <VideoStudio id={route.id} />
   else if (route.page === 'videos') body = <Videos />
@@ -130,7 +136,7 @@ function Root() {
   else if (route.page === 'materials') body = <Materials openId={route.id} />
   else if (route.page === 'ideas') body = <Ideas />
   else if (route.page === 'drafts') body = <Drafts />
-  else if (route.page === 'final-drafts') body = <FinalCopies key={route.id || 'list'} id={route.id} />
+  else if (route.page === 'final-drafts') body = <FinalCopies id={route.id} version={route.query.get('version')} />
   else if (route.page === 'tips') body = <ContentTips />
   else if (route.page === 'illustrations' || route.page === 'codex') body = <ArticleImages draftId={targetDraft} />
   else if (route.page === 'codex-history') body = <CodexTasks />
@@ -145,6 +151,9 @@ function Root() {
   return (
     <div className="app" ref={workspace.ref} style={{ '--sidebar': `${navigation.size}px` } as CSSProperties}>
       <ModelFallbackNotice />
+      <Dialog open={captureOpen} title="记一笔 / 添加素材" onClose={()=>setCaptureOpen(false)}>
+        <Composer status={status} onSaved={()=>setCaptureOpen(false)}/>
+      </Dialog>
       <Dialog open={renameOpen} title="修改工作台名称" onClose={()=>{if(!nameSaving)setRenameOpen(false)}} footer={<><button className="btn" disabled={nameSaving} onClick={()=>setRenameOpen(false)}>取消</button><button className="btn primary" disabled={nameSaving||!newName.trim()} onClick={()=>void saveName()}>{nameSaving?'保存中…':'保存名称'}</button></>}>
         <label className="field"><span>工作台名称</span><input className="input" autoFocus maxLength={40} value={newName} disabled={nameSaving} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&newName.trim()){e.preventDefault();void saveName()}}}/></label>
         {nameError&&<p className="callout" role="alert">{nameError}</p>}
@@ -155,8 +164,11 @@ function Root() {
           <span className="brand-mark"><Ic.Pen size={16} /></span>
           <button type="button" className="brand-name" title="点击修改工作台名称" aria-label="修改工作台名称" onClick={()=>{setNewName(workbenchName);setNameError('');setRenameOpen(true)}}>{workbenchName}</button>
         </div>
-        <button className="btn primary capture-btn" onClick={startCapture}><Ic.Plus size={16} /> 记一笔</button>
-        <button className="btn capture-btn" onClick={()=>go('imports')}><Ic.Upload size={16} /> 导入内容</button>
+        <details className="sidebar-capture">
+          <summary className="btn primary capture-btn"><Ic.Plus size={16} /> 收集内容</summary>
+          <button className="btn" onClick={e=>{e.currentTarget.closest('details')?.removeAttribute('open');startCapture()}}>记一笔</button>
+          <button className="btn" onClick={e=>{e.currentTarget.closest('details')?.removeAttribute('open');go('imports')}}><Ic.Upload size={16} /> 导入内容</button>
+        </details>
         <nav className="nav" aria-label="主导航">
           {primaryNav.map(n => (
             <button key={n.key} className="nav-item" aria-current={current === n.key ? 'page' : undefined} onClick={() => go(n.key)}>
@@ -176,7 +188,7 @@ function Root() {
             <div className="busy-line"><Ic.Loader size={14} /> 后台在处理 {status.jobs_active} 项</div>
           )}
           <div className="conn" aria-label="连接状态">
-            <div className="conn-row"><Ic.XLogo size={12} /> X<span className={'dot ' + (status?.x_connected ? 'on' : 'off')} /></div>
+            {status?.x_connected && <div className="conn-row"><Ic.XLogo size={12} /> X<span className="dot on" /></div>}
             <div className="conn-row"><Ic.WechatLogo size={13} /> 公众号<span className={'dot ' + (status?.wechat_configured ? 'on' : 'off')} /></div>
             <div className="conn-row"><Ic.Sparkle size={13} /> 起草模型<span className={'dot ' + (status?.llm.ok ? 'on' : 'off')} /></div>
           </div>

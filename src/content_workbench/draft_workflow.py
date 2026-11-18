@@ -3,6 +3,8 @@ import hashlib
 import uuid
 from contextlib import contextmanager
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
+from markdown_it import MarkdownIt
 from . import comments, db, learning, jobs, llm, idea_cards, ai_rules, images
 from .config import Settings
 from .platforms import PLATFORMS, writing_prompt
@@ -20,11 +22,45 @@ def setup():
           draft_id INTEGER PRIMARY KEY,
           platform TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
           body_hash TEXT NOT NULL, saved_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS final_copy_history(
+          draft_id INTEGER NOT NULL, version INTEGER NOT NULL, platform TEXT NOT NULL,
+          title TEXT NOT NULL, body TEXT NOT NULL, body_hash TEXT NOT NULL, saved_at REAL NOT NULL,
+          PRIMARY KEY(draft_id,version));
+        CREATE TABLE IF NOT EXISTS final_copy_images(
+          draft_id INTEGER NOT NULL, image_id INTEGER NOT NULL, mime TEXT NOT NULL, data BLOB NOT NULL,
+          PRIMARY KEY(draft_id,image_id));
         CREATE TABLE IF NOT EXISTS draft_lineage(
           draft_id INTEGER PRIMARY KEY REFERENCES drafts(id) ON DELETE CASCADE,
           request_key TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, snapshot TEXT NOT NULL, model TEXT,
           created_at REAL NOT NULL);
         """)
+        # Legacy rows already hold the confirmed text. Preserve still-available
+        # inline images before later edits or deletion of the source draft.
+        for row in c.execute("SELECT draft_id,body FROM final_copies").fetchall():
+            pin_final_images(c,row['draft_id'],row['body'])
+
+
+def final_image_ids(body):
+    return {int(src[12:]) for token in MarkdownIt('commonmark',{'html':False}).parse(body or '')
+            for child in token.children or [] if child.type=='image'
+            and (src:=child.attrGet('src') or '').startswith('/api/images/') and src[12:].isascii() and src[12:].isdigit()
+            and len(src[12:])<=18}
+
+
+def pin_final_images(c,did,body):
+    for iid in final_image_ids(body):
+        if c.execute('SELECT 1 FROM final_copy_images WHERE draft_id=? AND image_id=?',(did,iid)).fetchone():
+            continue
+        im=images.get(iid)
+        if not im or im['draft_id']!=did:
+            continue
+        try: raw=images.path_of(im).read_bytes()
+        except OSError: continue
+        c.execute('INSERT INTO final_copy_images VALUES(?,?,?,?)',(did,iid,im['mime'],raw))
+
+
+def latest_version(did):
+    return db.row('SELECT COALESCE(MAX(version),0)+1 AS n FROM final_copy_history WHERE draft_id=?',(did,))['n']
 
 def draft(did):
     row=db.row('SELECT * FROM drafts WHERE id=?',(did,))
@@ -114,15 +150,21 @@ def save_final_copy(did: int, body: dict):
         if v['blocked']:
             raise HTTPException(409, '暂不能存入成稿箱：'+'；'.join(v['blockers']))
         old = c.execute('SELECT body_hash,layout_hash FROM draft_reviews WHERE draft_id=?',(did,)).fetchone()
-        saved = c.execute('SELECT body_hash,saved_at FROM final_copies WHERE draft_id=?',(did,)).fetchone()
+        saved = c.execute('SELECT * FROM final_copies WHERE draft_id=?',(did,)).fetchone()
         now = db.now()
         layout_hash = old['layout_hash'] if old and old['body_hash'] == v['body_hash'] else ''
         c.execute('INSERT OR REPLACE INTO draft_reviews VALUES(?,?,?,?)',(did,v['body_hash'],layout_hash,now))
-        if saved and saved['body_hash'] == v['body_hash']:
-            return {'draft_id':did,'saved_at':saved['saved_at']}
+        version=latest_version(did)
+        if saved and saved['body'] and saved['body_hash'] == v['body_hash']:
+            return {'draft_id':did,'saved_at':saved['saved_at'],'version':version}
+        if saved:
+            pin_final_images(c,did,saved['body'])
+            c.execute('INSERT INTO final_copy_history SELECT draft_id,?,platform,title,body,body_hash,saved_at FROM final_copies WHERE draft_id=?',(version,did))
+            version+=1
+        pin_final_images(c,did,d['body'])
         c.execute('INSERT OR REPLACE INTO final_copies(draft_id,platform,title,body,body_hash,saved_at) VALUES(?,?,?,?,?,?)',
                   (did,d['platform'],d['title'],d['body'],v['body_hash'],now))
-    return {'draft_id':did,'saved_at':now}
+    return {'draft_id':did,'saved_at':now,'version':version}
 
 
 @router.get('/api/final-drafts')
@@ -136,12 +178,34 @@ def final_copies(q: str = '', platform: str = ''):
 
 
 @router.get('/api/final-drafts/{did}')
-def final_copy(did: int):
+def final_copy(did: int, version: int | None = None):
+    with db.tx():
+        return confirmed_snapshot(did,version)
+
+
+def confirmed_snapshot(did,version):
     row = db.row('''SELECT f.draft_id,f.platform,f.title,f.body,f.saved_at,d.id IS NOT NULL AS has_original
         FROM final_copies f LEFT JOIN drafts d ON d.id=f.draft_id WHERE f.draft_id=?''',(did,))
     if not row:
         raise HTTPException(404, '这篇还没有存入成稿箱')
+    current=latest_version(did)
+    if version is not None and version!=current:
+        previous=db.row('SELECT draft_id,platform,title,body,saved_at FROM final_copy_history WHERE draft_id=? AND version=?',(did,version))
+        if not previous:raise HTTPException(404,'找不到该确认版本')
+        row={**previous,'has_original':row['has_original']}
+    row['version']=current if version is None else version
+    row['versions']=[{'version':current,'saved_at':db.row('SELECT saved_at FROM final_copies WHERE draft_id=?',(did,))['saved_at']},
+                     *db.rows('SELECT version,saved_at FROM final_copy_history WHERE draft_id=? ORDER BY version DESC',(did,))]
+    pinned={r['image_id'] for r in db.rows('SELECT image_id FROM final_copy_images WHERE draft_id=?',(did,))}
+    row['image_ids']=sorted(final_image_ids(row['body']) & pinned)
     return row
+
+
+@router.get('/api/final-drafts/{did}/images/{iid}')
+def final_image(did: int,iid: int):
+    row=db.row('SELECT mime,data FROM final_copy_images WHERE draft_id=? AND image_id=?',(did,iid))
+    if not row:raise HTTPException(404,'确认版本的图片未保存')
+    return Response(row['data'],media_type=row['mime'],headers={'Cache-Control':'no-store'})
 
 
 @contextmanager

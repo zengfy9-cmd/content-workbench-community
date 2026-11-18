@@ -126,14 +126,42 @@ def _quotes(keyword):
     if not keyword:
         return '你想找哪个词？发关键词，或把要找的那几个字加引号。', []
     args = (keyword, keyword)
-    condition = "status='ready' AND (instr(lower(body),lower(?))>0 OR instr(lower(title),lower(?))>0)"
-    total = db.row(f'SELECT COUNT(*) n FROM materials WHERE {condition}', args)['n']
-    rows = db.rows(f'SELECT id,title,body FROM materials WHERE {condition} ORDER BY id DESC LIMIT 5', args)
-    sources = [{'id': row['id'], 'title': row['title'], 'kind': 'materials',
-                'excerpt': _excerpt(row['body'], keyword) or _excerpt(row['title'], keyword)}
-               for row in rows]
+    relation = """FROM materials m LEFT JOIN media_imports i ON i.id=m.media_id
+        WHERE m.status='ready' AND (instr(lower(m.body),lower(?))>0
+        OR instr(lower(m.title),lower(?))>0 OR instr(lower(COALESCE(i.raw,'')),lower(?))>0)"""
+    total = db.row('SELECT COUNT(*) n '+relation, (*args,keyword))['n']
+    rows = db.rows('''SELECT m.id,m.title,m.body,m.source,m.created_at,m.media_id,
+        i.raw AS raw,i.benchmark_id,i.source_platform '''+relation+' ORDER BY m.id DESC LIMIT 5',(*args,keyword))
+    sources=[]
+    for row in rows:
+        text=row['body'] or ''
+        judgment=''
+        if row['media_id']:
+            if row['benchmark_id'] is not None:
+                note=db.row("""SELECT note FROM mobile_captures
+                    WHERE bid=? AND length(trim(note))>0 ORDER BY stamp DESC,mid DESC LIMIT 1""",(row['benchmark_id'],))
+                judgment=note['note'][:400] if note else ''
+            excerpt=_excerpt(row['raw'] or '',keyword)
+            organized=_excerpt(text,keyword) if not excerpt else ''
+            label='原始转写／来源原文'
+        else:
+            # An explicitly labelled personal judgment in a handwritten note
+            # is separate from the source quote. Never infer one from prose.
+            if row['source']=='note':
+                match=re.search(r'(?m)^\s*我的判断[：:]\s*(.+(?:\n(?!\s*\n)[^\n]+)*)',text)
+                if match:
+                    judgment=match[1].strip()[:400]
+                    text=text[:match.start()]+text[match.end():]
+            excerpt=_excerpt(text,keyword)
+            organized=''
+            label='原始转写' if row['source'] in ('audio','feishu_minutes') else '素材原话'
+        names={'note':'手记','audio':'录音','feishu_minutes':'飞书妙记','feishu_doc':'飞书文档','feishu_table':'飞书表格','paste':'粘贴文字','media':'导入记录'}
+        sources.append({'id':row['id'],'title':row['title'],'kind':'materials','excerpt':excerpt,
+                        'quote_label':label,'organized_excerpt':organized,'judgment':judgment,
+                        'location':row['source_platform'] or names.get(row['source'],'素材库'),
+                        'media_id':row['media_id'],'collected_at':row['created_at']})
     if not total:
-        return f'素材里没找到包含「{keyword}」的原话。可以换个词再查。', []
+        return f'素材里没找到包含「{keyword}」的记录。可以换个词再查。', []
     suffix = '，先列最近 5 条' if total > len(sources) else ''
     return f'找到 {total} 条含「{keyword}」的素材{suffix}。', sources
 
@@ -198,8 +226,7 @@ def _related(message):
     return sources
 
 
-def _prepare(message):
-    mode, keyword = _route(message)
+def _direct(mode,keyword,message=''):
     context = {'mode':mode}
     if mode == 'quotes':
         answer, context['related'] = _quotes(keyword)
@@ -223,7 +250,23 @@ def _prepare(message):
         lines = [f"· {t['title']}" for t in topics[:6]]
         answer = '待挑选题：\n' + '\n'.join(lines) + ('\n更多见「选题」。' if len(topics)>6 else '') if topics else '目前没有待挑选题。'
         return context, '', answer
+    return None
 
+
+@router.get('/api/control/search')
+def search(mode:str,q:str=''):
+    q=q.strip()
+    if mode not in ('quotes','today','final') or len(q)>300 or (mode=='quotes' and not q):
+        raise HTTPException(400,'请选择查询类型并填写有效关键词')
+    context,_,answer=_direct(mode,q)
+    return {'context':context,'answer':answer}
+
+
+def _prepare(message):
+    mode, keyword = _route(message)
+    direct=_direct(mode,keyword,message)
+    if direct is not None:return direct
+    context={'mode':mode}
     data = {}
     related = []
     if mode in ('schedule','topics_schedule'):
@@ -275,7 +318,8 @@ def listing():
         turn['images'] = [r['position'] for r in db.rows('SELECT position FROM control_images WHERE turn_id=? ORDER BY position',(turn['id'],))]
         context = db.loads(turn['context'], {})
         turn['context'] = {'mode':context.get('mode'), 'related':[
-            {k:s.get(k) for k in ('id','kind','title','excerpt')}
+            {k:s.get(k) for k in ('id','kind','title','excerpt','quote_label','organized_excerpt','judgment',
+                                  'location','media_id','collected_at')}
             for s in context.get('related', [])[:5]
         ]}
     return {'turns':list(reversed(turns)), 'overview':overview(), 'model':MODEL, 'effort':EFFORT}

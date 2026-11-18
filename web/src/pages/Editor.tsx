@@ -14,7 +14,7 @@ import { DeliveryControls } from './DeliveryControls'
 import { RichEditor, type Selection } from '../RichEditor'
 import { CommentsPanel, DiffDialog, waiting } from './Comments'
 import { XhsPanel } from './Xhs'
-import { VideoCard } from './Video'
+import { VideoCard, hasLegacyVideo } from './Video'
 import { DraftOriginal, StudyAnalysis } from './StudyWorkspace'
 import { TipsPanel } from './ContentTips'
 import type { Benchmark, BenchmarkCard } from '../benchmarkTypes'
@@ -117,6 +117,8 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
   function restoreFields(v:DraftSnapshot){setTitle(v.title);setBody(v.body);setNotes(v.notes);setSummary(v.summary);setSourceUrl(v.sourceUrl);setWechatTheme(v.wechatTheme);setReviewIssues(v.reviewIssues)}
 
   const loadThreads = useCallback(() => api.get<Thread[]>(`/api/drafts/${id}/comments`).then(setThreads).catch(() => {}), [id])
+  const [reviewEpoch,setReviewEpoch]=useState(0)
+  const refreshReview=()=>{setReviewEpoch(n=>n+1);return loadThreads()}
 
   // load; keep polling while AI is drafting or revising, then take its text
   useEffect(() => {
@@ -141,7 +143,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
         restoreFields(next)
         if (!loaded.current) {
           let remembered:SideTab='reference'
-          try { const choice=localStorage.getItem(`cw-study-tab-${id}`); if(['tips','reference','prep','preview','comments','media','xhs','video','cases','notes','voice','log'].includes(choice||''))remembered=choice as SideTab } catch { /* */ }
+          try { const choice=localStorage.getItem(`cw-study-tab-${id}`); if(['tips','reference','prep','preview','comments','media','xhs','cases','notes','voice','log'].includes(choice||'')||(choice==='video'&&hasLegacyVideo(d)))remembered=choice as SideTab } catch { /* */ }
           setTab(studyId ? 'reference' : d.platform === 'x' ? 'notes' : remembered)
         }
       }
@@ -191,7 +193,9 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
     if (tid == null) return
     setSideOpen(true); setTab('comments')
     window.setTimeout(() => {
-      document.querySelector(`.cm-anchor[data-cid="${tid}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      const anchor=document.querySelector(`.cm-anchor[data-cid="${tid}"]`)
+      if(anchor)anchor.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      else if(threads.some(t=>t.id===tid&&t.quote&&t.status==='open'))toast('这段引文已改动，请在批注里核对原句。')
       document.querySelector(`[data-thread="${tid}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }, 50)
   }
@@ -366,8 +370,9 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
   const pubs = draft.publications || []
   const platformOnly = draft.platform==='xiaohongshu' || draft.platform==='douyin'
   const connected = isX ? status?.x_connected : status?.wechat_configured
+  const canPush = !platformOnly && (isX ? !!status?.x_connected : draft.platform==='wechat' || !!status?.x_connected || !!status?.zsxq_connected)
   const tabs = ((isX ? ['reference', 'tips', 'comments', 'notes', 'cases', 'voice', 'log'] : ['reference', 'prep', 'tips', 'preview', 'comments', 'media', 'xhs', 'video', 'cases', 'notes', 'voice', 'log']) as SideTab[])
-    .filter(k => (k !== 'cases' || status?.case_search) && (!platformOnly || !['media','xhs','video'].includes(k)))
+    .filter(k => (k !== 'cases' || status?.case_search) && (k !=='video'||hasLegacyVideo(draft)) && (!platformOnly || !['media','xhs','video'].includes(k)))
   const revising = draft.status === 'revising'
   const todo = waiting(threads)
   const openCount = threads.filter(t => t.status === 'open'&&!t.draft_record).length
@@ -392,6 +397,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
             <button className="btn sm" disabled={saved==='saving'||!!recoveryConflict} onClick={()=>void save()}>保存</button>
             <button className="btn sm" aria-expanded={originalOpen} aria-controls="study-middle" onClick={toggleOriginal}>{originalOpen?'收起对标原文':'对标原文'}</button>
             <button className="btn sm reference-trigger" aria-pressed={sideOpen && tab === 'reference'} onClick={openReferences}><Ic.Doc size={15} /> 解析</button>
+            <button className="btn sm" onClick={async()=>{if(await save())go(`screenshots?draft=${id}`)}}>截图标注</button>
             {draft.platform==='wechat' && <button className="btn sm wechat-layout-trigger" disabled={generating || revising || formatting || !body.trim()}
               onClick={() => applyWechatLayout()} title="按 xilo 的公众号样式排版，保留文章原文">
               {formatting ? <Ic.Loader size={15} /> : <Ic.Sparkle size={15} />} {formatting ? '排版中…' : '一键排版'}
@@ -402,7 +408,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
             {todo.length > 0 && !revising && (
               <button className="btn" onClick={revise} title="把等 AI 处理的批注一起发给 AI 改"><Ic.Sparkle size={15} /> 按批注修改 {todo.length}</button>
             )}
-            {platformOnly ? <DeliveryControls id={id} title={title} body={body}/> : <button className="btn primary" disabled={generating || revising || !body.trim() || overLimit} onClick={openPublish}>
+            {canPush && <button className="btn primary" disabled={generating || revising || !body.trim() || overLimit} onClick={openPublish}>
               <Ic.Send size={15} /> {isX ? '发到 X' : '推到草稿箱'}
             </button>}
           </div>
@@ -439,7 +445,9 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
                 </span>
               </div>
             )}
-            <DraftWorkflow id={id} platform={draft.platform} save={save} getSavedStamp={()=>serverStamp.current} onComments={threadId=>{void loadThreads();if(threadId!==undefined)focusThread(threadId);else{setSideOpen(true);setTab('comments')}}} onLocateMark={markId=>{const target=document.querySelector(`.review-issue[data-issue-id="${markId}"]`);if(target)target.scrollIntoView({block:'center',behavior:'smooth'});else toast('原位置已变化，请按上方标记文字核对；核对后可清除这条标记。')}} onClearMark={markId=>setReviewIssues(marks=>marks.filter(mark=>mark.id!==markId))} onPreview={()=>{setSideOpen(true);setTab('preview')}} onImages={()=>go(`illustrations?draft=${id}`)}/>
+            <DraftWorkflow id={id} platform={draft.platform} save={save} getSavedStamp={()=>serverStamp.current} dirty={snapshotKey(latest.current)!==savedBase.current} savedAt={savedAt} reviewEpoch={reviewEpoch} localMarks={reviewIssues.length} hasBody={!!body.trim()}
+              delivery={platformOnly?<DeliveryControls id={id} title={title} body={body}/>:!canPush&&<details><summary>复制或导出</summary><div className="row wrap workflow-actions"><DeliveryControls id={id} title={title} body={body}/></div></details>}
+              onComments={threadId=>{void loadThreads();if(threadId!==undefined)focusThread(threadId);else{setSideOpen(true);setTab('comments')}}} onLocateMark={markId=>{const target=document.querySelector(`.review-issue[data-issue-id="${markId}"]`);if(target)target.scrollIntoView({block:'center',behavior:'smooth'});else toast('原位置已变化，请按上方标记文字核对；核对后可清除这条标记。')}} onClearMark={markId=>setReviewIssues(marks=>marks.filter(mark=>mark.id!==markId))} onPreview={()=>{setSideOpen(true);setTab('preview')}} onImages={()=>go(`illustrations?draft=${id}`)}/>
             {draft.writing_context && <WritingContextSummary context={draft.writing_context} body={draft.body}/>}<PromptTrace kind="writing" id={draft.id}/>
             {generating ? (
               <div className="gen-wait">
@@ -487,7 +495,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
                 {k === 'cases' && <><Ic.Bulb size={15} /> 找案例</>}
                 {k === 'notes' && <><Ic.Doc size={15} /> 备注</>}
                 {k === 'voice' && <><Ic.Sparkle size={15} /> 文风{flags.length > 0 && <span className="badge">{flags.length}</span>}</>}
-                {k === 'log' && <><Ic.Send size={15} /> 记录{pubs.length > 0 && <span className="faint small">{pubs.length}</span>}</>}
+                {k === 'log' && <><Ic.Send size={15} /> 发布记录{pubs.length > 0 && <span className="faint small">{pubs.length}</span>}</>}
               </button>
             ))}<button className="btn ghost sm" aria-expanded={moreTabs} onClick={()=>setMoreTabs(v=>!v)}>{moreTabs?'收起更多':'更多 ▾'}</button>
           </div>
@@ -498,13 +506,13 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
               onUse={(card,sourceTitle)=>{setResearchHint({card,title:sourceTitle});richRef.current?.commands.focus('end')}}/>}
             {tab === 'comments' && (
               <CommentsPanel draftId={id} threads={threads} order={order} pendingSel={pendingSel} onClearSel={() => setPendingSel(null)}
-                active={activeThread} onActivate={focusThread} onChanged={loadThreads} onRevise={revise} busy={revising} />
+                active={activeThread} onActivate={focusThread} onChanged={refreshReview} onRevise={revise} busy={revising} />
             )}
             {tab === 'xhs' && !isX && <XhsPanel draft={draft} onDraft={setDraft} />}
-            {tab === 'video' && !isX && <VideoCard draft={draft} onDraft={setDraft} />}
+            {tab === 'video' && !isX && hasLegacyVideo(draft) && <VideoCard draft={draft} onDraft={setDraft} />}
             {tab === 'cases' && <CasesPanel draftId={id} onUse={line => setNotes(n => (n.trim() ? n.trimEnd() + '\n' : '') + line)} />}
             {tab === 'preview' && !isX && <>
-              {!platformOnly && <WechatLayoutControls themes={wechatThemes} theme={wechatTheme} busy={formatting || generating || revising}
+              {draft.platform==='wechat' && <WechatLayoutControls themes={wechatThemes} theme={wechatTheme} busy={formatting || generating || revising}
                 canCopy={!!preview?.html && previewBody === body && previewTitle === title && preview.wechat_theme === wechatTheme}
                 inferredHeadings={preview?.layout?.inferred_headings || 0}
                 branding={preview?.branding} onNumber={async number => {
@@ -525,7 +533,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
             )}
             {tab === 'preview' && !isX && (
               <div className="phone">
-                <div className="phone-bar">公众号文章预览</div>
+                <div className="phone-bar">{draft.platform==='wechat'?'公众号文章预览':'正文预览'}</div>
                 <div className="phone-body">
                   {!wechatTheme && <h1>{title || '标题'}</h1>}
                   {author && <div className="by">{author}</div>}
@@ -552,7 +560,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
             )}
             {tab === 'log' && <FeishuLine draft={draft} onChange={() => api.get<Draft>(`/api/drafts/${id}`).then(setDraft)} />}
             {tab === 'log' && (pubs.length === 0 ? (
-              <div className="empty"><div className="empty-icon"><Ic.Send /></div><b>还没发过</b><div className="small">{isX ? '点右上角“发到 X”。' : '点右上角“推到草稿箱”，选公众号或 X 长文，之后在平台上检查再发表。'}</div></div>
+              <div className="empty"><div className="empty-icon"><Ic.Send /></div><b>暂无发布记录</b><div className="small">{canPush?'完成平台交付后，这里会显示结果。':'在稿件操作中复制、导出或记录已发布内容。'}</div></div>
             ) : (
               <div>{pubs.map(p => <PubLine key={p.id} p={p} />)}</div>
             ))}
@@ -560,7 +568,7 @@ export function Editor({ id, status, studyId, studyKey }: { id: number; status: 
         </aside>
       )}
 
-      {!platformOnly && (isX ? (
+      {canPush && (isX ? (
         <ConfirmPublish open={confirming} draft={{ ...draft, title, body }} segs={segs} connected={!!connected}
           cover={!!status?.wechat_cover} onClose={() => setConfirming(false)}
           onSent={() => { setConfirming(false); setTab('log'); setSideOpen(true); api.get<Draft>(`/api/drafts/${id}`).then(setDraft); window.dispatchEvent(new Event('cw-refresh-status')) }} />

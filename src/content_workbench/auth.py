@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import hmac
 import ipaddress
+import re
 import secrets
 import time
 
@@ -239,7 +240,8 @@ class Guard(BaseHTTPMiddleware):
         if "cache-control" not in response.headers:
             response.headers["Cache-Control"] = "no-store"
         # the video editor shows its instant scene preview in a same-origin frame
-        response.headers["X-Frame-Options"] = "SAMEORIGIN" if "/video/preview/" in path else "DENY"
+        studio_frame = bool(re.fullmatch(r'/api/screenshot-projects/[a-f0-9]{24}/editor', path))
+        response.headers["X-Frame-Options"] = "SAMEORIGIN" if "/video/preview/" in path or studio_frame else "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response

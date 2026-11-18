@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Draft, type VideoPreview, type VideoScene } from '../api'
 import { go } from '../App'
 import { AutoTextarea, Empty } from '../ui'
-import { Field, fmtDur, fmtSize, RenderProgress, SceneEditor, speakSec, TtsWarning, TYPE_HINT, TYPE_LABEL, TYPES, useVideo } from './Video'
+import { Field, fmtDur, fmtSize, hasLegacyVideo, RenderProgress, SceneEditor, speakSec, TtsWarning, TYPE_HINT, TYPE_LABEL, TYPES, useVideo } from './Video'
 import * as Ic from '../icons'
 
 type Frame = Window & { cwSeek?: (t: number) => void; cwPoster?: number }
@@ -220,6 +220,7 @@ export function VideoStudio({ id }: { id: number }) {
 
   if (missing) return <div className="page narrow"><div className="card"><Empty icon={<Ic.Film />} title="找不到这篇长文">它可能已经删掉了。<button className="btn sm" onClick={() => go('videos')}>回到视频列表</button></Empty></div></div>
   if (!draft) return <div className="studio"><div className="studio-top" /><div className="studio-center"><div className="skeleton" style={{ height: 240, width: '100%', maxWidth: 520 }} /></div></div>
+  if (!hasLegacyVideo(draft) && !(v.s.scenes?.length || v.s.status || v.s.video || v.s.error || v.s.planned_at)) return <div className="page narrow"><div className="card"><Empty icon={<Ic.Film />} title="新视频从稿件接续">在稿件或成稿选择「用本机 Codex 继续制作」。<button className="btn sm" onClick={() => go(`drafts/${id}`)}>打开稿件</button></Empty></div></div>
   if (draft.platform !== 'wechat') return <div className="page narrow"><div className="card"><Empty icon={<Ic.Film />} title="只有长文能做成视频">X 推文没有视频版。</Empty></div></div>
 
   const scene = scenes[sel]

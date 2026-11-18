@@ -127,15 +127,26 @@ def test_final_copy_stays_separate_from_working_revision_and_publication(platfor
  assert not c.get(f'/api/drafts/{did}/workflow').json()['final_copy']['current']
  c.post(url,json=payload(),headers=H).raise_for_status()
  assert c.get(f'/api/final-drafts/{did}').json()['body']=='还在改的第二版。'
+ assert c.get(f'/api/final-drafts/{did}?version=1').json()['body']=='已确认的文字。'
  c.delete(f'/api/drafts/{did}',headers=H).raise_for_status()
  final=c.get(f'/api/final-drafts/{did}').json()
  assert final['body']=='还在改的第二版。' and not final['has_original']
+ assert [x['version'] for x in final['versions']]==[2,1]
  r=c.post('/api/control',json={'request_key':str(uuid.uuid4()),'message':'在成稿箱找《成稿标题》'},headers=H)
  r.raise_for_status()
  turn=c.get('/api/control').json()['turns'][-1]
  assert turn['state']=='done' and turn['context']['mode']=='final'
  assert turn['context']['related'][0]['id']==did
  assert not db.rows("SELECT 1 FROM jobs WHERE kind='control_chat'")
+
+
+def test_legacy_final_copy_with_missing_body_does_not_use_live_original():
+ c=client();login(c);did=create(c)
+ with db.tx() as conn:
+  conn.execute('INSERT INTO final_copies VALUES(?,?,?,?,?,?)',(did,'wechat','旧成稿','', 'missing',db.now()))
+ wf.setup()
+ row=c.get(f'/api/final-drafts/{did}').json()
+ assert row['body']=='' and row['title']=='旧成稿' and row['has_original'] and row['version']==1
 
 
 def test_review_differentiates_drafting_records_from_unresolved_feedback():

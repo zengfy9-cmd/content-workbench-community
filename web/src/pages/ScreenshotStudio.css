@@ -1,0 +1,10 @@
+.screenshot-studio-embedded{display:flex;flex-direction:column;height:100dvh;min-height:600px}
+.screenshot-studio-bar{display:flex;gap:8px;align-items:center;padding:7px 14px;border-bottom:1px solid var(--border);background:var(--surface)}
+.screenshot-studio-bar>a:last-child{margin-left:auto}
+.screenshot-frame-wrap{flex:1;min-height:0;overflow:auto}
+.screenshot-editor{display:block;width:100%;min-width:780px;height:100%;border:0;background:#f7f7f5}
+.screenshot-projects h2{font-size:16px;margin:16px 0}
+.screenshot-candidates{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.screenshot-candidate{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px;border:1px solid var(--border);border-radius:10px;cursor:pointer}
+.screenshot-candidate img{width:100%;height:100px;object-fit:contain}
+.screenshot-candidate span{overflow-wrap:anywhere}

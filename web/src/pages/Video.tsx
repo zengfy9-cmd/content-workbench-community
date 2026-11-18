@@ -316,6 +316,11 @@ export function RenderProgress({ s }: { s: VideoState }) {
 
 /** The 视频 tab beside the long-form editor: where the video stands, and the way
  * into the full-screen video workspace where it is made. */
+export function hasLegacyVideo(draft: Draft): boolean {
+  const v = draft.video
+  return !!(v?.scenes?.length || v?.planned_at || v?.status || v?.video || v?.error)
+}
+
 export function VideoCard({ draft, onDraft }: { draft: Draft; onDraft: (d: Draft) => void }) {
   const v = useVideo(draft, onDraft)
   const { s, scenes } = v

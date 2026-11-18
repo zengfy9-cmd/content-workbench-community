@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useRef, useState, type DragEvent } from 'react'
 import { api, type Status } from '../api'
 import { go } from '../App'
 import { Dialog, todayLabel, usePoll, useToast } from '../ui'
-import { Composer } from './Composer'
 import { PlanDialog, planDay, type Plan, type PlanSource } from './WritingPlans'
 import { TipDialog, type Tip } from './ContentTips'
 import { TagChips } from '../TagChips'
@@ -22,13 +21,12 @@ export function WritingDashboard({status}:{status:Status|null}) {
   const [plans,setPlans]=useState<Plan[]>([]), [tips,setTips]=useState<Tip[]>([])
   const [hot,setHot]=useState<{items:News[];updated_at:number|null;stale:boolean}>({items:[],updated_at:null,stale:true})
   const [story,setStory]=useState<News|null>(null), [storyBusy,setStoryBusy]=useState(false), [newsBusy,setNewsBusy]=useState(false)
-  const [adding,setAdding]=useState<AddState|null>(null), [tipOpen,setTipOpen]=useState(false), [capture,setCapture]=useState(false)
+  const [adding,setAdding]=useState<AddState|null>(null), [tipOpen,setTipOpen]=useState(false)
   const [tipIndex,setTipIndex]=useState(0)
   const [error,setError]=useState(''), [starting,setStarting]=useState<number|null>(null)
   const load=()=>Promise.all([api.get<Plan[]>('/api/plans'),api.get<typeof hot>('/api/news/hot'),api.get<Tip[]>('/api/tips')])
     .then(([p,n,t])=>{setPlans(p);setHot(n);setTips(t.filter(t=>!t.archived));setError('')}).catch(e=>setError(e.message))
   usePoll(load,15000)
-  useEffect(()=>{const listener=()=>setCapture(true);window.addEventListener('cw-capture',listener);return()=>window.removeEventListener('cw-capture',listener)},[])
   async function edit(plan:Plan,patch:object){try{await api.patch(`/api/plans/${plan.id}`,patch);await load()}catch(e){toast((e as Error).message,'error')}}
   async function start(plan:Plan){
     if(starting!==null)return
@@ -58,33 +56,31 @@ export function WritingDashboard({status}:{status:Status|null}) {
     </footer></article>)}</div>}
   function drop(date:string,e:DragEvent){e.preventDefault();const p=plans.find(x=>x.id===Number(e.dataTransfer.getData('text/plain')));if(p)void edit(p,{day:date})}
   return <div className="page writing-dashboard-v2">
-    <header className="writing-welcome"><div><h1>工作总览</h1><p>{todayLabel()} · 安排任务，继续手上的稿件。</p></div><div className="row wrap"><button className="btn" onClick={()=>create(planDay(),'draft')}>从稿件添加</button><button className="btn primary" onClick={()=>create()}>＋ 新建计划</button></div></header>
+    <header className="writing-welcome"><div><h1>工作总览</h1><p>{todayLabel()} · 安排任务，继续手上的稿件。</p></div></header>
     {error&&<p role="alert" className="callout">{error}</p>}
     <div className="writing-home-layout"><section className="writing-planning-area" aria-label="写作计划"><div className="writing-lanes">
       <section className="writing-lane today" onDragOver={e=>e.preventDefault()} onDrop={e=>drop(planDay(),e)}><header><h2>今日任务 <span>{today.length}</span></h2>{addMenu(planDay(),'添加今日写作')}</header>
-        {cards(today)}{!today.length&&<div className="writing-lane-empty"><strong>今天准备推进哪一篇？</strong><p>选一篇已有稿件继续写，或安排一个新选题。</p><button className="btn" onClick={()=>create(planDay(),'draft')}>从已有稿件添加</button></div>}
-        <button className="lane-add" onClick={()=>create()}>＋ 添加今天要写的内容</button>
+        {cards(today)}{!today.length&&<div className="writing-lane-empty"><strong>今天准备推进哪一篇？</strong><p>选一篇已有稿件继续写，或安排一个新选题。</p></div>}
       </section>
       <section className="writing-lane tomorrow" onDragOver={e=>e.preventDefault()} onDrop={e=>drop(planDay(1),e)}><header><h2>明日任务 <span>{tomorrow.length}</span></h2>{addMenu(planDay(1),'添加明天写作计划')}</header>
-        {cards(tomorrow,true)}{!tomorrow.length&&<div className="writing-lane-empty"><strong>给明天留一个好开头</strong><p>先选题、定角度、选好对标素材，明天打开就能接着写。</p><button className="btn" onClick={()=>create(planDay(1),'idea')}>挑一个选题</button></div>}
+        {cards(tomorrow,true)}{!tomorrow.length&&<div className="writing-lane-empty"><strong>给明天留一个好开头</strong><p>先选题、定角度、选好对标素材，明天打开就能接着写。</p></div>}
       </section></div>
       <section className="writing-extra"><header><div><h2>热点加更</h2><span>临时选题单独安排，原计划保留</span></div><button className="btn sm" onClick={()=>create(planDay(),'new','extra')}>＋ 添加加更</button></header>{extra.length>0&&cards(extra)}</section>
       {future.length>0&&<details className="writing-fold"><summary>之后的计划 · {future.length} 篇</summary>{cards(future,true)}</details>}
     </section><aside className="writing-assist" aria-label="热点与内容技巧">
       <section className="writing-tips-preview"><header><button className="section-link" onClick={()=>go('tips')}><h2>灵感区 ›</h2></button><div className="row"><button className="btn ghost sm" aria-label="上一条技巧" disabled={tips.length<2} onClick={()=>setTipIndex(i=>(i+tips.length-1)%tips.length)}>←</button><span className="small muted" aria-live="polite">{tips.length?tipIndex%tips.length+1:0}/{tips.length}</span><button className="btn ghost sm" aria-label="下一条技巧" disabled={tips.length<2} onClick={()=>setTipIndex(i=>(i+1)%tips.length)}>→</button></div></header><p className="assist-caption">写不出来时，翻一张自己的方法卡</p>
         {shownTip?<button className="home-tip-note" onClick={()=>go('tips')}><strong>{shownTip.pinned?'⌖ ':''}{shownTip.title}</strong><p>{shownTip.content}</p><TagChips tags={[shownTip.category,shownTip.origin]}/></button>:<div className="home-tip-note"><strong>留住一个对你有用的动作</strong><p>选题、开头、写法和排版，先记一句，下次写作时再用。</p></div>}
-        <div className="tip-preview-actions"><button className="btn" onClick={()=>go('tips')}>查看技巧</button><button className="btn primary" onClick={()=>setTipOpen(true)}>＋ 记一条</button></div>
+        <div className="tip-preview-actions"><button className="btn" onClick={()=>setTipOpen(true)}>＋ 记一条灵感</button></div>
       </section>
       <section className="writing-news"><header><h2>今日热点</h2><button className="text-action" disabled={newsBusy} onClick={()=>void refresh()}>{newsBusy?'更新中…':'刷新'}</button></header>
         <p className="assist-caption">{hot.updated_at?`${new Date(hot.updated_at*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})} 更新 · 每小时更新`:'正在获取热点，可点击刷新重试'}</p>
         <ol>{hot.items.map(n=><li key={n.url}><span className="news-rank">{n.rank}</span><button className="news-title" onClick={()=>void detail(n)}>{n.title}</button><button className="news-add" aria-label={`将热点“${n.title}”加入计划`} onClick={()=>create(planDay(1),'new','planned',n)}>＋</button></li>)}</ol>
       </section>
     </aside></div>
-    <div className="writing-inbox-strip"><div><strong>待处理</strong><button onClick={()=>go('ideas')}>{status?.counts.ideas_new||0} 个选题</button><button onClick={()=>go('materials')}>{status?.counts.materials||0} 条素材</button><button onClick={()=>go('benchmarks')}>打开对标库</button><button onClick={()=>setCapture(true)}>＋ 记一笔</button></div><span>计划关联原稿，安排日期不会复制文章</span></div>
+    <div className="writing-inbox-strip"><div><strong>待处理</strong><button onClick={()=>go('ideas')}>{status?.counts.ideas_new||0} 个选题</button><button onClick={()=>go('materials')}>{status?.counts.materials||0} 条素材</button><button onClick={()=>go('benchmarks')}>打开对标库</button></div><span>计划关联原稿，安排日期不会复制文章</span></div>
     <details className="writing-fold"><summary>已完成与归档计划 · {completed.length} 篇</summary>{completed.map(p=><div key={p.id} className="row wrap"><span>{p.day} · {p.title}</span><button className="btn sm" onClick={()=>void edit(p,{state:'todo'})}>恢复计划</button></div>)}</details>
     <PlanDialog open={!!adding} existing={adding?.existing} initialDay={adding?.day} mode={adding?.mode} kind={adding?.kind} seed={adding?.seed} onClose={()=>setAdding(null)} onSaved={()=>{setAdding(null);void load()}}/>
     <TipDialog open={tipOpen} onClose={()=>setTipOpen(false)} onSaved={()=>{setTipOpen(false);void load()}}/>
-    <Dialog open={capture} title="记一笔 / 添加素材" onClose={()=>setCapture(false)}><Composer status={status} onSaved={()=>{setCapture(false);void load()}}/></Dialog>
     <Dialog open={!!story} title={story?.title||'热点详情'} onClose={()=>{storyRequest.current++;setStory(null)}} footer={<><button className="btn" onClick={()=>{create(planDay(1),'new','planned',story||undefined);storyRequest.current++;setStory(null)}}>加入明天计划</button><button className="btn primary" onClick={()=>{create(planDay(),'new','extra',story||undefined);storyRequest.current++;setStory(null)}}>加入热点加更</button></>}><article className="hot-story"><p className="small muted">AIHOT 聚合资料，重要事实请回原始信源核对。</p><a href={story?.url} target="_blank" rel="noopener noreferrer">打开 AIHOT 来源</a>{storyBusy?<p role="status">正在读取事件详情…</p>:<div dangerouslySetInnerHTML={{__html:newsMarkdown.render(story?.body||story?.detail||'')}}/>}</article></Dialog>
   </div>
 }

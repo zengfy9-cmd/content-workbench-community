@@ -157,16 +157,24 @@ export function PublishLongform({ open, draft, body, status, onClose, onSent }: 
   open: boolean; draft: Draft; body: string; status: Status | null; onClose: () => void; onSent: (target: Target) => void
 }) {
   const toast = useToast()
-  const [target, setTarget] = useState<Target>('wechat')
+  const [selectedTarget, setTarget] = useState<Target | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [xName, setXName] = useState<string | null>(null)
+  const targets: Target[] = [
+    ...(draft.platform === 'wechat' ? ['wechat' as const] : []),
+    ...(status?.x_connected ? ['x_article' as const] : []),
+    ...(status?.zsxq_connected ? ['zsxq' as const] : []),
+  ]
+  const target=selectedTarget&&targets.includes(selectedTarget)?selectedTarget:targets[0]
   useEffect(() => {
     if (!open) return
     setErr('')
+    setTarget(null)
+    if (!status?.x_connected) return
     api.get<{ x_account: { username?: string; subscription_type?: string } | null }>('/api/settings')
       .then(s => setXName(s.x_account ? `@${s.x_account.username}${s.x_account.subscription_type ? ` · ${s.x_account.subscription_type}` : ''}` : null)).catch(() => {})
-  }, [open])
+  }, [open, status?.x_connected])
 
   const pics = referencedImages(body).length
   const holes = placeholders(body)
@@ -176,9 +184,10 @@ export function PublishLongform({ open, draft, body, status, onClose, onSent }: 
   const wxReady = !!status?.wechat_configured && wxCover !== 'none'
   const xReady = !!status?.x_connected && (!needsMedia || !!status?.x_media) && !!draft.title.trim()
   const zsxqReady = !!status?.zsxq_connected && !!status?.zsxq_group && !!draft.title.trim() && draft.title.trim().length <= 60
-  const ready = target === 'wechat' ? wxReady : target === 'zsxq' ? zsxqReady : xReady
+  const ready = target === 'wechat' ? wxReady : target === 'zsxq' ? zsxqReady : target === 'x_article' && xReady
 
   async function send() {
+    if (!target || !ready) return
     setBusy(true); setErr('')
     try {
       await api.post(`/api/drafts/${draft.id}/publish`, { confirm: true, target })
@@ -201,11 +210,11 @@ export function PublishLongform({ open, draft, body, status, onClose, onSent }: 
         {target === 'wechat' ? ' 推到公众号草稿箱' : target === 'zsxq' ? ' 存进星球草稿箱' : ' 推到 X 长文草稿'}</button>
     </>}>
       <div className="stack">
-        <div className="segmented" role="group" aria-label="发到哪里">
-          <button aria-pressed={target === 'wechat'} onClick={() => setTarget('wechat')}><Ic.WechatLogo size={13} /> 公众号草稿箱</button>
-          <button aria-pressed={target === 'x_article'} onClick={() => setTarget('x_article')}><Ic.XLogo size={11} /> X 长文草稿</button>
-          <button aria-pressed={target === 'zsxq'} onClick={() => setTarget('zsxq')}>星 星球草稿箱</button>
-        </div>
+        {targets.length>1&&<div className="segmented" role="group" aria-label="发到哪里">
+          {targets.includes('wechat')&&<button aria-pressed={target === 'wechat'} onClick={() => setTarget('wechat')}><Ic.WechatLogo size={13} /> 公众号草稿箱</button>}
+          {targets.includes('x_article')&&<button aria-pressed={target === 'x_article'} onClick={() => setTarget('x_article')}><Ic.XLogo size={11} /> X 长文草稿</button>}
+          {targets.includes('zsxq')&&<button aria-pressed={target === 'zsxq'} onClick={() => setTarget('zsxq')}>星 星球草稿箱</button>}
+        </div>}
         {target === 'zsxq' ? (
           <div className="checks">
             <Line ok={!!status?.zsxq_connected && !!status?.zsxq_group} label="知识星球">{!status?.zsxq_connected ? <a onClick={() => go('settings')}>还没连接，去设置里扫码</a> : !status?.zsxq_group ? <a onClick={() => go('settings')}>还没填星球编号，去设置里填</a> : `已连接，存进「${status.zsxq_group}」的文章草稿箱`}</Line>

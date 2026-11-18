@@ -9,9 +9,10 @@ const tasks = {
   review: { label: '发布前审校', skill: 'xilo-guoshen', action: '按接下来指定的平台和发布场景，区分规则风险、事实缺口和可替换改法；有成片时另核画面、字幕、实播和标签。只给预检报告。' },
 }
 
-export function XiloHandoff({ scope, draftId, platform }: { scope: 'draft' | 'video'; draftId?: number; platform?: string }) {
+export function XiloHandoff({ scope, draftId, platform }: { scope: 'draft' | 'final' | 'video'; draftId?: number; platform?: string }) {
   const toast = useToast()
   const keys: (keyof typeof tasks)[] = scope === 'video' ? ['talk', 'film', 'review']
+    : scope === 'final' ? ['script', 'talk', 'film', 'review']
     : platform === 'douyin' ? ['script', 'review'] : ['write', 'script', 'review']
 
   return <details>

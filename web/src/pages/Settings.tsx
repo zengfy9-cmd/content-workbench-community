@@ -88,6 +88,13 @@ export function SettingsPage({ query, status }: { query: URLSearchParams; status
 
       <ImageApiSettings/>
       <AiRules/>
+      <section className="settings-group">
+        <h2>写作与旧项目</h2>
+        <div className="card">
+          <div className="setting"><div className="body"><div className="t">写作设置</div><div className="d">查看、确认要用于起草和改稿的个人规则。</div></div><a className="btn sm" href="#/habits">管理改稿习惯</a></div>
+          <div className="setting"><div className="body"><div className="t">旧视频项目</div><div className="d">新视频从稿件或成稿交给本机 Codex；原有项目在这里查看。</div></div><a className="btn sm" href="#/videos">查看旧项目</a></div>
+        </div>
+      </section>
       <XiaoDConnection/>
       <section className="settings-group">
         <h2>发布渠道</h2>

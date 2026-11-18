@@ -28,11 +28,6 @@ export function Composer({ status, onSaved }: { status: Status | null; onSaved: 
   const rec = useRecorder(file => upload(file))
   const link = text.match(FEISHU_LINK)?.[1]
 
-  useEffect(() => {
-    const focus = () => { box.current?.focus(); box.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }) }
-    window.addEventListener('cw-capture', focus)
-    return () => window.removeEventListener('cw-capture', focus)
-  }, [])
 
   function change(v: string) { setText(v); saveNote(v) }
 
@@ -87,7 +82,7 @@ export function Composer({ status, onSaved }: { status: Status | null; onSaved: 
 
   return (
     <div className="composer">
-      <AutoTextarea inputRef={box} value={text} placeholder="记点什么。今天想到的、看到的、跟人聊到的，或者直接贴一个飞书文档链接。"
+      <AutoTextarea autoFocus inputRef={box} value={text} placeholder="记点什么。今天想到的、看到的、跟人聊到的，或者直接贴一个飞书文档链接。"
         onChange={e => change(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit() } }} />
       <div className="composer-bar">
